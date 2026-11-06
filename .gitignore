@@ -1,0 +1,30 @@
+.DS_Store
+docs/reference/
+*.mp4
+*.MP4
+*.mov
+node_modules/
+__pycache__/
+*.pyc
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Local reference media and screenshots (may contain third-party/user content)
+docs/*.png
+docs/*.jpg
+docs/*.jpeg
+# Local credentials, caches and build products
+.env
+.env.*
+!.env.example
+*.p12
+*.mobileprovision
+*.key
+*.pem
+*.eml
+*.xcarchive
+*.ipa
+*.dSYM/
+.swiftpm/

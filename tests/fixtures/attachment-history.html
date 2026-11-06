@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-HK"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>yrNewsEx 附件位置預覽</title><link rel="stylesheet" href="../../prototype/style.css"><body><main class="phone"><div class="status">9:41</div><div id="app"><section class="screen"><header class="nav"><strong>附件位置預覽 · 示範</strong></header><div class="scroll"><header class="article-head"><h2>Re: 相片放喺 history 前面</h2></header><article class="article-body"></article></div></section></div></main><script type="module">
+import {articleSections,splitHistory} from '../../prototype/message-layout.mjs';
+import {sampleImage} from '../../prototype/model.mjs';
+const body=document.querySelector('.article-body');
+for(const part of articleSections({body:'呢段係我新寫嘅回覆。\n\nOn 15:00 05/11, Parent wrote:\n> 呢段係之前嘅 message history。\n>> 更早嘅父訊息引用。',images:[sampleImage]})){
+ const el=document.createElement(part.type==='image'?'img':splitHistory(part.text).history?'blockquote':'p');
+ if(part.type==='image'){el.src=sampleImage;el.alt='示範附件'}else el.textContent=part.text;
+ body.append(el);
+}
+</script></body></html>
