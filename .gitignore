@@ -28,3 +28,6 @@ docs/*.jpeg
 *.ipa
 *.dSYM/
 .swiftpm/
+
+# Per-developer Apple signing settings
+native/LocalSigning.xcconfig
