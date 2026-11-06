@@ -94,3 +94,5 @@ python3 scripts/test_native_nntp.py /tmp/yrnewsex-posting-tests
 共用設定由 `native/Signing.xcconfig` 載入；個人 Team ID 及專用 bundle identifier 放入已忽略嘅 `native/LocalSigning.xcconfig`，唔推上公開 repo。可參考 `LocalSigning.example.xcconfig`，將 YOUR_TEAM_ID 換成 Xcode Apple Account 嘅 Team ID，並用自己可註冊嘅 bundle identifier。Debug／Release 都使用同一個本機覆寫；模擬器可繼續唔簽名編譯。
 
 真機安裝仍需 Xcode 實際連通並信任 iPhone，以及有效 development certificate／profile。成功編譯未簽名 ARM64 app 唔代表已裝落手機。
+
+真機安裝及逐項試用步驟見 [DEVICE_TESTING.md](DEVICE_TESTING.md)。2026-11-06 已完成一次 iPhone 18 Pro／iOS 27.0.1 真機安裝及啟動；個人憑證／profile 只保留本機。
