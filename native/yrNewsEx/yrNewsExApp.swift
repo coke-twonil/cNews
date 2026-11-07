@@ -9,6 +9,7 @@ final class ReaderStore: ObservableObject {
     @Published var progress = ""
     @Published var loadingArticles = Set<String>()
     private let file: URL
+    private lazy var writer = SnapshotFileWriter(file: file)
     init() {
         file = URL.applicationSupportDirectory.appending(path: "yrNewsEx/native-demo.json")
         if FileManager.default.fileExists(atPath: file.path) {
@@ -22,10 +23,9 @@ final class ReaderStore: ObservableObject {
         if snapshot.migrateSenderIPParser() { save() }
     }
     func save() {
-        do {
-            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(snapshot).write(to: file, options: .atomic)
-        } catch { storageError = "未能儲存：\(error.localizedDescription)" }
+        writer.schedule(snapshot) { [weak self] message in
+            Task { @MainActor [weak self] in self?.storageError = "未能儲存：" + message }
+        }
     }
     func markRead(_ id: String, threadID: String? = nil) {
         for t in snapshot.threads.indices where threadID == nil || snapshot.threads[t].id == threadID {
@@ -267,6 +267,7 @@ final class ReaderStore: ObservableObject {
         return history
     }
     func saveReplyDraft(_ draft: ReplyDraft, key: String) {
+        guard let sid = key.split(separator: "|").first, snapshot.servers.contains(where: { $0.id == String(sid) }) else { return }
         if snapshot.replyDrafts == nil { snapshot.replyDrafts = [:] }
         snapshot.replyDrafts?[key] = draft
     }
@@ -840,6 +841,8 @@ struct ReplyScreen: View {
     @State private var picker = false
     @State private var selection: [PhotosPickerItem] = []
     @State private var importing = false
+    @State private var photoSlots = 3
+    @State private var photoTask: Task<Void, Never>?
     @State private var camera = false
     @State private var settings = false
     var server: NewsServer? { store.snapshot.servers.first { $0.id == (thread.serverID ?? "demo") } }
@@ -861,25 +864,20 @@ struct ReplyScreen: View {
                         HStack {
                             ForEach(draft.photos) { photo in
                                 ZStack(alignment: .topTrailing) {
-                                    if let image = UIImage(data: photo.data) { Image(uiImage: image).resizable().scaledToFit().frame(width: 80, height: 70) }
+                                    ReplyPhotoThumbnail(photo: photo)
                                     Button { draft.photos.removeAll { $0.id == photo.id }; edited() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.white, .black) }.accessibilityLabel("Remove photo")
                                 }
                             }
                         }
                     }.frame(height: 80).padding(.horizontal, 12).disabled(sending)
                 }
-                HStack {
-                    Menu {
-                        Button("Choose Existing") { picker = true }
-                        Button("Take a New Photo") {
-                            if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true }
-                            else { errorText = "模擬器冇相機；真 iPhone 可以影相。" }
-                        }
-                    } label: { Label("Attach Photo", systemImage: "camera") }
-                    .disabled(draft.photos.count >= 3 || sending || importing || loadingHistory || !historyReady)
-                    Spacer(); Text("\(draft.photos.count)/3").foregroundStyle(.secondary)
-                }.padding(12)
-                if importing { ProgressView("Preparing photo…").padding(.horizontal, 12) }
+                if importing {
+                    HStack {
+                        ProgressView("Preparing photo…")
+                        Spacer()
+                        Button("Cancel") { photoTask?.cancel(); importing = false }
+                    }.padding(12)
+                }
                 if isLive && !identityReady {
                     Button("先喺 Server 設定 Name／Email") { settings = true }.padding(12)
                 }
@@ -888,31 +886,32 @@ struct ReplyScreen: View {
                 if draft.status == "uncertain" || draft.status == "duplicate" {
                     Button("用新識別碼再試") { draft.changed(); saveDraft(); errorText = nil }.padding(12).disabled(sending)
                 }
-                Text(isLive ? "Send 會公開發送到 \(thread.groupName ?? "")；相片放喺 history 前。" : "Demo：只儲存本機回覆，Refresh 先顯示。")
-                    .font(.footnote).foregroundStyle(.secondary).padding(12)
             }.background(.black).toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     ReaderHeader(title: isNewPost ? "New Post" : "Reply") {
                         Button("Cancel") { dismiss() }.frame(minHeight: 44).disabled(sending)
                     } right: {
-                        Button(sending ? "Sending…" : "Send") { Task { await send() } }.frame(minHeight: 44)
-                            .disabled(sending || loadingHistory || !historyReady || importing || !identityReady || (isNewPost && (draft.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (replyTextSections(draft.text).own.isEmpty && draft.photos.isEmpty))
-                    }
-                }
-                .task { await loadHistory() }
-                .photosPicker(isPresented: $picker, selection: $selection, maxSelectionCount: max(1, 3-draft.photos.count), matching: .images)
-                .onChange(of: selection) { _, items in
-                    Task {
-                        importing = true; defer { importing = false; selection = [] }
-                        for item in items.prefix(max(0, 3-draft.photos.count)) {
-                            do {
-                                guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else { throw NewsError.failure("相片無法讀取") }
-                                try addPhoto(image)
-                            } catch { errorText = error.localizedDescription }
+                        HStack(spacing: 8) {
+                            Menu {
+                                Button("Choose Existing") { selection = []; photoSlots = max(1, 3-draft.photos.count); picker = true }
+                                Button("Take a New Photo") {
+                                    if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true }
+                                    else { errorText = "模擬器冇相機；真 iPhone 可以影相。" }
+                                }
+                            } label: { Image(systemName: "camera").font(.system(size: 21)).frame(width: 44, height: 44) }
+                            .accessibilityLabel("Attach Photo")
+                            .disabled(draft.photos.count >= 3 || sending || importing || loadingHistory || !historyReady)
+                            Button(sending ? "Sending…" : "Send") { Task { await send() } }.frame(minHeight: 44)
+                                .disabled(sending || loadingHistory || !historyReady || importing || !identityReady || (isNewPost && (draft.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (replyTextSections(draft.text).own.isEmpty && draft.photos.isEmpty))
                         }
                     }
                 }
-                .sheet(isPresented: $camera) { CameraCapture { image in do { try addPhoto(image) } catch { errorText = error.localizedDescription } } }
+                .task { await loadHistory() }
+                .photosPicker(isPresented: $picker, selection: $selection, maxSelectionCount: photoSlots, matching: .images, preferredItemEncoding: .current)
+                .onChange(of: selection) { _, items in if !picker { importPhotos(items) } }
+                .onChange(of: picker) { _, shown in if !shown { importPhotos(selection) } }
+                .onDisappear { photoTask?.cancel() }
+                .sheet(isPresented: $camera) { CameraCapture { image in importCameraPhoto(image) } }
                 .sheet(isPresented: $settings) { if let server { ServerEditor(server: server, isNew: false) } }
                 .interactiveDismissDisabled(sending)
                 .alert(isLive ? "Sent" : "Saved locally", isPresented: $showingSent) {
@@ -929,10 +928,48 @@ struct ReplyScreen: View {
     }
     func saveDraft() { store.saveReplyDraft(draft, key: draftKey) }
     func edited() { draft.changed(); saveDraft(); errorText = nil }
-    func addPhoto(_ image: UIImage) throws {
+    func appendPhoto(_ photo: ReplyPhoto) throws {
         guard draft.photos.count < 3 else { throw NewsError.failure("最多三張相") }
-        guard let data = image.jpegData(compressionQuality: 0.85), data.count <= 5*1024*1024 else { throw NewsError.failure("每張相最多 5 MB") }
-        draft.photos.append(ReplyPhoto(data: data, mime: "image/jpeg")); edited()
+        draft.photos.append(photo); edited()
+    }
+    func importPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty, !importing else { return }
+        importing = true; errorText = nil
+        photoTask = Task {
+            defer { if !Task.isCancelled { importing = false; selection = [] } }
+            for item in items.prefix(max(0, 3-draft.photos.count)) {
+                do {
+                    try Task.checkCancellation()
+                    guard let data = try await item.loadTransferable(type: Data.self) else { throw PhotoPreparation.PhotoError.invalid }
+                    try Task.checkCancellation()
+                    let photo = try await Task.detached(priority: .userInitiated) { try PhotoPreparation.prepare(data) }.value
+                    try Task.checkCancellation()
+                    try appendPhoto(photo)
+                } catch is CancellationError { return }
+                catch { if !Task.isCancelled { errorText = error.localizedDescription } }
+            }
+        }
+    }
+    func importCameraPhoto(_ image: UIImage) {
+        guard !importing, draft.photos.count < 3 else { return }
+        importing = true; errorText = nil
+        photoTask = Task {
+            defer { if !Task.isCancelled { importing = false } }
+            do {
+                let photo = try await Task.detached(priority: .userInitiated) {
+                    try autoreleasepool {
+                        let scale = min(1, CGFloat(PhotoPreparation.maxDimension) / max(image.size.width, image.size.height))
+                        let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
+                        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+                        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+                        guard let data = resized.jpegData(compressionQuality: 0.85) else { throw PhotoPreparation.PhotoError.invalid }
+                        return try PhotoPreparation.prepare(data)
+                    }
+                }.value
+                try Task.checkCancellation(); try appendPhoto(photo)
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled { errorText = error.localizedDescription } }
+        }
     }
     func send() async {
         guard let server, !sending else { return }
@@ -966,6 +1003,22 @@ struct ReplyScreen: View {
         }
     }
 }
+struct ReplyPhotoThumbnail: View {
+    let photo: ReplyPhoto
+    @State private var image: UIImage?
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFit() }
+            else { ProgressView() }
+        }.frame(width: 80, height: 70)
+        .task(id: photo.id) {
+            let bytes = photo.data
+            let data = await Task.detached(priority: .utility) { PhotoPreparation.thumbnail(bytes) }.value
+            guard !Task.isCancelled else { return }
+            image = data.flatMap { UIImage(data: $0) }
+        }
+    }
+}
 struct CameraCapture: UIViewControllerRepresentable {
     @Environment(\.dismiss) var dismiss
     var onPhoto: (UIImage) -> Void
@@ -979,7 +1032,9 @@ struct CameraCapture: UIViewControllerRepresentable {
         init(_ parent: CameraCapture) { self.parent = parent }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let image = info[.originalImage] as? UIImage { parent.onPhoto(image) }; parent.dismiss()
+            let image = info[.originalImage] as? UIImage
+            parent.dismiss()
+            if let image { parent.onPhoto(image) }
         }
     }
 }

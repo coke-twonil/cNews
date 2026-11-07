@@ -129,3 +129,21 @@ Server Settings 底部新增紅色 Delete Server。確認視窗會顯示 server 
 首次更新會保留有效 IP、正文、已讀及 Block 名單，只重設舊版本冇抽到 IP 嘅查詢標記，令長按 Block 可以再讀來源 header。已有 Block 名單嘅 server，進 group 會補讀已快取文章嘅未檢查來源 headers，唔下載新 messages，唔改 Refresh 數字。新增 7 項 header 解析測試及 5 項快取遷移測試；模型 36 項、NNTP 26 項通過。
 
 修正後真 server 只讀抽查：general.chat 最新 20 篇、general.soccer_n_chat 最新 20 篇、test.test 全部 7 篇，app parser 均讀到來源 IP。模擬器沿用舊快取，長按 test.test「試野」已成功顯示 IP 並啟用 Block；取消確認，未封鎖該用戶，無發文。抽查結果不代表所有歷史文章。
+
+
+## 回覆加圖及工具列修正
+
+新主題／回覆統一將相片 camera icon 放在右上角 Send 左邊，保留 Choose Existing／Take a New Photo，但移除可見 Attach Photo 文字、0/3 計數及底部 Send 提示。最多三張相限制不變；三張後停用 icon，刪除附件可再加入。
+
+加圖流程修正：PhotosPicker 關閉後才開始匯入，固定每次選擇器的剩餘名額，忽略空選擇及重複觸發。保留原始 HEIC/JPEG 資料交 ImageIO 在 worker task 解碼為最長邊 2048 px、方向修正後的 JPEG（最多 5 MB）；不在主執行緒壓縮原尺寸照片。相機照片亦在 worker 縮圖及壓縮。附件預覽只讀 240 px 縮圖，避免每次重畫解碼整幅照片；匯入提供進度及取消，離開畫面取消工作，取消後不插入遲到結果。
+
+原本每次編輯草稿／加相會在主執行緒編碼及寫入整份文章快取。改用 serial background writer 原子寫入，合併等待中的快照並保持最新版本順序，寫入失敗回報；文字、圖片、已讀及其他文章保留。未改 Send 成功後手動 Refresh 才加入文章的流程。
+
+驗證：6 項 PhotoTests（24 MP、EXIF 方向、大小限制、metadata、預覽縮圖及損壞檔案）、4 項 PersistenceTests（最新草稿順序、相片 bytes、文章快取及寫入錯誤）、13 項既有發文測試通過。模擬器 Demo 回覆實際匯入產生的 24 MP 色塊照片，仍可打字、再加入兩張產生的測試圖；三張後 icon 停用，取消編輯再開草稿保留文字及三張圖。沒有公開發文，沒有修改真機相庫。相機實拍仍需真機驗收。
+
+```sh
+xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/PhotoPreparation.swift native/PhotoTests/main.swift -o /tmp/yrnewsex-photo-tests
+/tmp/yrnewsex-photo-tests
+xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/SnapshotFileWriter.swift native/PersistenceTests/main.swift -o /tmp/yrnewsex-persistence-tests
+/tmp/yrnewsex-persistence-tests
+```
