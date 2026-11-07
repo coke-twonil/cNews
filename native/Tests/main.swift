@@ -17,3 +17,38 @@ check(downloadSelection(available: [90,101,102,105,106], newestDownloaded: 100, 
 check(downloadSelection(available: [90,101,102,105,106], newestDownloaded: 100, count: 2, latest: true) == [105,106], "Latest selects newest batch")
 let restored = try JSONDecoder().decode(ReaderSnapshot.self, from: JSONEncoder().encode(demoSnapshot()))
 check(restored.threads[2].tree.count == 9, "persistent hierarchy roundtrip")
+var blockedThread = thread
+blockedThread.messages[1].senderIP = "192.0.2.24"
+let blocked = BlockedUser(username: "Alex", email: "alex@example.invalid", ip: "192.0.2.24")
+let filtered = blockedThread.visible(blocked: [blocked])!
+check(filtered.messages.map(\.id) == ["t2m0", "t2m5", "t2m6", "t2m7", "t2m8"], "IP block hides complete descendant branch, preserves siblings")
+check(blockedThread.visible(blocked: [])!.messages.count == 9, "Unblock restores untouched cache")
+blockedThread.messages[0].senderIP = "192.0.2.24"
+check(blockedThread.visible(blocked: [blocked]) == nil, "Blocked root hides entire thread")
+var sameIP = NewsThread(id: "same", subject: "Other", messages: [NewsMessage(id: "other", author: "Other <other@example.invalid>", body: "", senderIP: "192.0.2.24")])
+check(sameIP.visible(blocked: [blocked]) == nil, "Different email with same IP is blocked")
+sameIP.messages[0].senderIP = "198.51.100.1"
+check(sameIP.visible(blocked: [blocked]) != nil, "Different IP remains visible")
+check(canonicalIP("2001:0db8:0:0::1") == "2001:db8::1", "Equivalent IPv6 addresses normalize")
+check(canonicalIP("news.example.invalid") == nil, "Hostname is never treated as sender IP")
+check(senderIdentity("Alex <alex@example.invalid>").email == "alex@example.invalid", "Block confirmation preserves sender identity")
+check(adjacentThreadIndex(threadIDs: ["a","a","b","b","c"], index: 3, delta: -1) == 0, "Up jumps to first message of previous thread")
+check(adjacentThreadIndex(threadIDs: ["a","a","b","b","c"], index: 2, delta: 1) == 4, "Down jumps to first message of next thread")
+check(adjacentThreadIndex(threadIDs: ["a","a"], index: 1, delta: 1) == nil, "Thread navigation respects last boundary")
+check(thread.matches("coffee", scope: "Sender") && !thread.matches("coffee", scope: "Subject"), "Sender search is independent from Subject")
+check(thread.matches("多謝", scope: "Message") && !thread.matches("多謝", scope: "Sender"), "Message search uses body only")
+var saved = demoSnapshot()
+saved.servers[0].blockedUsers = [blocked]
+saved.threads[0].messages[0].favourite = true
+saved.refreshCounts = ["demo|general.chat": 17]
+let before = try JSONEncoder().encode(saved)
+let roundtrip = try JSONDecoder().decode(ReaderSnapshot.self, from: before)
+check(roundtrip.servers[0].blockedUsers == [blocked] && roundtrip.threads[0].messages[0].favourite == true, "Block identity and favourites survive relaunch")
+saved.threads[0].messages[0].read = true
+check(saved.refreshCounts?["demo|general.chat"] == 17, "Reading does not change last Refresh count")
+let legacy = Data(#"{"servers":[],"threads":[],"pending":[]}"#.utf8)
+let migrated = try JSONDecoder().decode(ReaderSnapshot.self, from: legacy)
+check(migrated.refreshCounts == nil, "Old cache migrates without deleting data")
+
+var searchOnly = NewsThread(id: "search", subject: "Title", messages: [NewsMessage(id: "search1", author: "A", body: "", bodyLoaded: false, searchBody: "Cached search text")])
+check(searchOnly.matches("cached", scope: "Message") && searchOnly.messages[0].bodyLoaded == false, "Text search cache does not pretend images are fully loaded")

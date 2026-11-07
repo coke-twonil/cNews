@@ -37,13 +37,24 @@ final class ReaderStore: ObservableObject {
                 return }
         }
     }
-    func refresh() {
-        for reply in snapshot.pending {
-            if let t = snapshot.threads.firstIndex(where: { $0.id == reply.threadID }), !snapshot.threads[t].messages.contains(where: { $0.id == reply.message.id }) {
-                snapshot.threads[t].messages.append(reply.message)
+    func refresh(group: String = "general.chat") {
+        var updated = snapshot
+        var count = 0
+        var pending = updated.pending
+        pending.removeAll { reply in
+            if let thread = reply.newThread {
+                guard (thread.groupName ?? "general.chat") == group else { return false }
+                if !updated.threads.contains(where: { $0.id == thread.id }) { updated.threads.insert(thread, at: 0); count += 1 }
+                return true
             }
+            guard let t = updated.threads.firstIndex(where: { $0.id == reply.threadID }), (updated.threads[t].groupName ?? "general.chat") == group else { return false }
+            if !updated.threads[t].messages.contains(where: { $0.id == reply.message.id }) { updated.threads[t].messages.append(reply.message); count += 1 }
+            return true
         }
-        snapshot.pending.removeAll()
+        updated.pending = pending
+        if updated.refreshCounts == nil { updated.refreshCounts = [:] }
+        updated.refreshCounts?[groupKey("demo", group)] = count
+        snapshot = updated
     }
     func catalog(_ server: NewsServer) async throws -> [String] {
         try await Task.detached {
@@ -66,6 +77,8 @@ final class ReaderStore: ObservableObject {
     }
     func download(server: NewsServer, group: String, numbers: [Int]) async {
         guard !busy else { return }; busy = true; defer { busy = false; progress = "" }
+        setRefreshCount(server: server.id, group: group, count: 0)
+        var downloaded = 0
         do {
             for offset in stride(from: 0, to: numbers.count, by: 500) {
                 try Task.checkCancellation()
@@ -73,12 +86,16 @@ final class ReaderStore: ObservableObject {
                 progress = "Downloading \(offset)/\(numbers.count)"
                 let headers = try await Task.detached {
                     let client = try NNTPClient(host: server.host, port: server.port); defer { client.close() }
-                    return try client.headers(group: group, numbers: batch)
+                    var messages = try client.headers(group: group, numbers: batch)
+                    let ips = try client.senderIPs(group: group, numbers: batch)
+                    for i in messages.indices { messages[i].senderIP = ips[messages[i].articleNumber ?? 0]; messages[i].senderIPChecked = true }
+                    return messages
                 }.value
                 let key = groupKey(server.id, group)
                 var cache = snapshot.liveGroups?[key] ?? LiveGroupCache()
                 var known = Set(cache.messages.map(\.id))
-                for message in headers where known.insert(message.id).inserted { cache.messages.append(message) }
+                for message in headers where known.insert(message.id).inserted { cache.messages.append(message); downloaded += 1 }
+                setRefreshCount(server: server.id, group: group, count: downloaded)
                 if snapshot.liveGroups == nil { snapshot.liveGroups = [:] }
                 snapshot.liveGroups?[key] = cache
                 rebuild(server: server, group: group)
@@ -103,9 +120,116 @@ final class ReaderStore: ObservableObject {
                 snapshot.liveGroups?[key]?.messages[i].images = article.images
                 snapshot.liveGroups?[key]?.messages[i].warnings = article.warnings
                 snapshot.liveGroups?[key]?.messages[i].bodyLoaded = true
+                snapshot.liveGroups?[key]?.messages[i].senderIP = article.senderIP
+                snapshot.liveGroups?[key]?.messages[i].senderIPChecked = true
                 rebuild(server: server, group: group)
             }
         } catch { storageError = error.localizedDescription }
+    }
+
+    func setRefreshCount(server: String, group: String, count: Int) {
+        if snapshot.refreshCounts == nil { snapshot.refreshCounts = [:] }
+        snapshot.refreshCounts?[groupKey(server, group)] = count
+    }
+    func visibleThread(_ thread: NewsThread) -> NewsThread? {
+        let blocked = snapshot.servers.first { $0.id == (thread.serverID ?? "demo") }?.blockedUsers ?? []
+        return thread.visible(blocked: blocked)
+    }
+    func updateMessages(threadID: String, change: (inout NewsMessage) -> Void) {
+        guard let t = snapshot.threads.firstIndex(where: { $0.id == threadID }) else { return }
+        var updated = snapshot
+        for i in updated.threads[t].messages.indices { change(&updated.threads[t].messages[i]) }
+        if let sid = updated.threads[t].serverID, let group = updated.threads[t].groupName {
+            let byID = Dictionary(updated.threads[t].messages.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let key = groupKey(sid, group)
+            if var cache = updated.liveGroups?[key] {
+                for i in cache.messages.indices { if let message = byID[cache.messages[i].id] { cache.messages[i] = message } }
+                updated.liveGroups?[key] = cache
+            }
+        }
+        snapshot = updated
+    }
+    func favourite(_ messageID: String, threadID: String) {
+        updateMessages(threadID: threadID) { if $0.id == messageID { $0.favourite = !($0.favourite ?? false) } }
+    }
+    func markThreadRead(_ threadID: String) { updateMessages(threadID: threadID) { $0.read = true } }
+    func sourceIP(message: NewsMessage, serverID: String, group: String) async throws -> String? {
+        if message.senderIPChecked == true || message.senderIP != nil { return message.senderIP }
+        guard let server = snapshot.servers.first(where: { $0.id == serverID }), server.id != "demo", let number = message.articleNumber else { return nil }
+        return try await Task.detached {
+            let client = try NNTPClient(host: server.host, port: server.port); defer { client.close() }
+            return try client.senderIPs(group: group, numbers: [number])[number]
+        }.value
+    }
+    func hydrateSourceIPs(server: NewsServer) async throws {
+        let cachedGroups = (snapshot.liveGroups ?? [:]).keys.filter { $0.hasPrefix(server.id + "|") }.map { String($0.dropFirst(server.id.count + 1)) }
+        for group in Set(server.groups + cachedGroups).sorted() {
+            let key = groupKey(server.id, group)
+            let missing = (snapshot.liveGroups?[key]?.messages ?? []).filter { $0.senderIPChecked != true }.compactMap(\.articleNumber).sorted()
+            for offset in stride(from: 0, to: missing.count, by: 500) {
+                let batch = Array(missing[offset..<min(offset+500, missing.count)])
+                progress = "Checking sender IPs: \(group) \(offset)/\(missing.count)"
+                let ips = try await Task.detached {
+                    let client = try NNTPClient(host: server.host, port: server.port); defer { client.close() }
+                    return try client.senderIPs(group: group, numbers: batch)
+                }.value
+                var updated = snapshot
+                if var cache = updated.liveGroups?[key] {
+                    let numbers = Set(batch)
+                    for i in cache.messages.indices where cache.messages[i].articleNumber.map({ numbers.contains($0) }) == true {
+                        cache.messages[i].senderIP = ips[cache.messages[i].articleNumber!]; cache.messages[i].senderIPChecked = true
+                    }
+                    updated.liveGroups?[key] = cache
+                }
+                snapshot = updated; rebuild(server: server, group: group)
+            }
+        }
+    }
+    func blockUser(_ user: BlockedUser, serverID: String) async throws {
+        guard !busy, let server = snapshot.servers.first(where: { $0.id == serverID }) else { throw NewsError.failure("請等目前下載完成再試") }
+        busy = true; defer { busy = false; progress = "" }
+        // Resolve cached source headers first; failures leave the block confirmation open.
+        if server.id != "demo" { try await hydrateSourceIPs(server: server) }
+        guard let i = snapshot.servers.firstIndex(where: { $0.id == serverID }) else { return }
+        var users = snapshot.servers[i].blockedUsers ?? []
+        users.removeAll { $0.ip == user.ip }; users.append(user)
+        snapshot.servers[i].blockedUsers = users
+    }
+    func unblock(_ ip: String, serverID: String) {
+        if let i = snapshot.servers.firstIndex(where: { $0.id == serverID }) { snapshot.servers[i].blockedUsers?.removeAll { $0.ip == ip } }
+    }
+    func searchBodies(server: NewsServer, group: String) async throws {
+        guard !busy else { throw NewsError.failure("請等目前下載完成再搜尋內文") }
+        busy = true; defer { busy = false; progress = "" }
+        let key = groupKey(server.id, group)
+        let missing = (snapshot.liveGroups?[key]?.messages ?? []).filter { $0.bodyLoaded != true && $0.searchBody == nil }
+        for offset in stride(from: 0, to: missing.count, by: 10) {
+            try Task.checkCancellation()
+            let batch = Array(missing[offset..<min(offset+10, missing.count)])
+            progress = "Searching message bodies \(offset)/\(missing.count)"
+            let task = Task.detached {
+                let client = try NNTPClient(host: server.host, port: server.port); defer { client.close() }
+                var results: [(String, String, String?)] = []
+                for message in batch {
+                    try Task.checkCancellation()
+                    guard let number = message.articleNumber else { continue }
+                    let article = try client.article(group: group, number: number)
+                    results.append((message.id, article.body, article.senderIP))
+                }
+                return results
+            }
+            let results = try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
+            var updated = snapshot
+            for (id, text, ip) in results {
+                if let i = updated.liveGroups?[key]?.messages.firstIndex(where: { $0.id == id }) {
+                    // Search caches text only; images still load when opening the article.
+                    updated.liveGroups?[key]?.messages[i].searchBody = text
+                    updated.liveGroups?[key]?.messages[i].senderIP = ip
+                    updated.liveGroups?[key]?.messages[i].senderIPChecked = true
+                }
+            }
+            snapshot = updated; rebuild(server: server, group: group)
+        }
     }
 
     func replyHistory(thread: NewsThread, message: NewsMessage) async throws -> String {
@@ -190,6 +314,34 @@ struct ReaderBottom<Content: View>: View {
             .background(Color(white: 0.15).ignoresSafeArea(edges: .bottom)).buttonStyle(.plain)
     }
 }
+struct ReaderAction: Identifiable {
+    var title: String
+    var action: () -> Void
+    var id: String { title }
+}
+/// Flat action sheet keeps the yrNews layout on newer iOS versions too.
+struct ReaderActionSheet: View {
+    var items: [ReaderAction]
+    var cancel: () -> Void
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.5).ignoresSafeArea().onTapGesture(perform: cancel)
+            VStack(spacing: 8) {
+                VStack(spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                        if index > 0 { Divider().overlay(Color(white: 0.3)) }
+                        Button { cancel(); item.action() } label: {
+                            Text(item.title).font(.system(size: 20)).frame(maxWidth: .infinity, minHeight: 58)
+                        }
+                    }
+                }.background(Color(white: 0.14), in: RoundedRectangle(cornerRadius: 14))
+                Button(action: cancel) { Text("Cancel").font(.system(size: 20, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 58) }
+                    .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 14))
+            }.foregroundStyle(Color(red: 0.04, green: 0.52, blue: 1)).buttonStyle(.plain).padding(.horizontal, 8).padding(.bottom, 8)
+        }.accessibilityAddTraits(.isModal)
+    }
+}
+
 struct ReaderBack: View {
     var title: String
     var action: () -> Void
@@ -253,9 +405,23 @@ struct ServerEditor: View {
                     TextField("Name", text: $server.name)
                     TextField("Email", text: $server.email).textInputAutocapitalization(.never).keyboardType(.emailAddress).autocorrectionDisabled()
                 }
+                if !isNew {
+                    Section("Blocked Users") {
+                        let users = store.snapshot.servers.first { $0.id == server.id }?.blockedUsers ?? []
+                        if users.isEmpty { Text("未有封鎖用戶").foregroundStyle(.secondary) }
+                        ForEach(users) { user in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Username: \(user.username)")
+                                Text("Email: \(user.email)")
+                                Text("IP: \(user.ip)").monospaced()
+                                Button("Unblock", role: .destructive) { store.unblock(user.ip, serverID: server.id) }
+                            }.font(.subheadline).textSelection(.enabled)
+                        }
+                    }
+                }
                 Section {
                     NavigationLink("Subscribe Group") { SubscriptionScreen(selection: $server.groups, server: server) }
-                } footer: { Text("Live 會直接連線載入群組及文章；119 普通 NNTP，563 TLS。暫未支援帳密登入；test.test 已開放相片回覆，其他群組只讀。Name／Email 會隨發文公開顯示。") }
+                } footer: { Text("Live 會直接連線載入群組及文章；119 普通 NNTP，563 TLS。暫未支援帳密登入；支援發文及最多三張相片。Name／Email 會隨發文公開顯示。") }
             }
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -263,7 +429,7 @@ struct ServerEditor: View {
                     Button("Cancel") { dismiss() }.frame(minHeight: 44)
                 } right: {
                     Button("Done") {
-                        if let i = store.snapshot.servers.firstIndex(where: { $0.id == server.id }) { store.snapshot.servers[i] = server }
+                        if let i = store.snapshot.servers.firstIndex(where: { $0.id == server.id }) { server.blockedUsers = store.snapshot.servers[i].blockedUsers; store.snapshot.servers[i] = server }
                         else { store.snapshot.servers.append(server) }
                         dismiss()
                     }.frame(minHeight: 44).disabled(server.host.trimmingCharacters(in: .whitespaces).isEmpty || !(1...65535).contains(server.port))
@@ -323,7 +489,15 @@ struct ThreadScreen: View {
     var group: String
     @State private var expanded = Set<String>()
     @State private var query = ""
+    @State private var searchScope = "Subject"
+    @State private var searching = false
+    @FocusState private var searchFocused: Bool
     @State private var unreadOnly = false
+    @State private var favouritesOnly = false
+    @State private var latestReply = false
+    @State private var actions = false
+    @State private var composing = false
+    @State private var blockTarget: BlockTarget?
     @State private var reading: ReadingSession?
     @State private var edgeBackActive = false
     @Environment(\.dismiss) private var dismiss
@@ -333,75 +507,132 @@ struct ThreadScreen: View {
     @State private var quantity = 500
     @State private var customQuantity = "500"
     var threads: [NewsThread] {
-        return store.snapshot.threads.filter { t in
-            let belongs = server.id == "demo" ? (group == "general.chat" && t.serverID == nil) : (t.serverID == server.id && t.groupName == group)
-            return belongs && (!unreadOnly || t.unread > 0) && (query.isEmpty || t.subject.localizedCaseInsensitiveContains(query)) }
+        var result = store.snapshot.threads.compactMap { t -> NewsThread? in
+            let belongs = server.id == "demo" ? (t.serverID == nil && (t.groupName ?? "general.chat") == group) : (t.serverID == server.id && t.groupName == group)
+            guard belongs, let visible = store.visibleThread(t), (!unreadOnly || visible.unread > 0), (!favouritesOnly || visible.messages.contains { $0.favourite == true }), visible.matches(query, scope: searchScope) else { return nil }
+            return visible
+        }
+        if latestReply { result.sort { ($0.messages.compactMap(\.articleNumber).max() ?? 0) > ($1.messages.compactMap(\.articleNumber).max() ?? 0) } }
+        return result
     }
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                Text(group).font(.system(size: 34, weight: .bold)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8)
-                ReaderSearch(text: $query)
+                if !searching { Text(group).font(.system(size: 34, weight: .bold)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8) }
+                searchBar
                 if checking { ProgressView("Checking new messages…").padding() }
                 if store.busy { ProgressView(store.progress).padding() }
-                if threads.isEmpty { Text("未有本機文章").foregroundStyle(.secondary).padding(30) }
+                if threads.isEmpty { Text(query.isEmpty ? "未有符合條件嘅本機文章" : "搵唔到符合嘅文章").foregroundStyle(.secondary).padding(30) }
                 ForEach(threads) { thread in
                     VStack(spacing: 0) {
                         ForEach(expanded.contains(thread.id) ? thread.tree : Array(thread.tree.prefix(1)), id: \.message.id) { entry in
-                            HStack(spacing: 8) {
-                                if entry.depth > 0 { Text("└").foregroundStyle(.gray) }
-                                Circle().fill(entry.message.read ? Color.clear : Color.blue).frame(width: 6, height: 6)
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(entry.depth == 0 ? thread.subject : "Re: \(thread.subject)").font(.system(size: 17)).foregroundStyle(entry.message.read ? .gray : .white).lineLimit(1)
-                                    Text(entry.message.author).font(.system(size: 13)).foregroundStyle(.gray)
-                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                                    .onTapGesture {
-                                        let route = threads.flatMap { t in t.tree.map { ReadingItem(threadID: t.id, messageID: $0.message.id) } }
-                                        reading = ReadingSession(route: route, initial: ReadingItem(threadID: thread.id, messageID: entry.message.id))
-                                    }.accessibilityAddTraits(.isButton)
-                                if entry.depth == 0 {
-                                    Button { toggle(thread.id) } label: { Text("\(thread.unread)/\(thread.messages.count)").font(.system(size: 15)).frame(minWidth: 44, minHeight: 44) }.accessibilityLabel("Expand thread")
-                                }
-                            }.padding(.leading, 12 + CGFloat(min(entry.depth, 12)) * 18).padding(.trailing, 12).frame(minHeight: 64).contentShape(Rectangle())
+                            messageRow(thread, entry.message, depth: entry.depth)
                             Divider().overlay(Color(white: 0.08))
                         }
-                    }
-                    .background(HorizontalSwipe { direction in
-                        if direction < 0 { expanded.insert(thread.id) } else { expanded.remove(thread.id) }
-                    })
+                    }.background(HorizontalSwipe { _ in toggle(thread.id) })
                 }
-            }.background(EdgeBack(active: edgeBackActive && !downloadDialog && reading == nil) { dismiss() })
+            }.background(EdgeBack(active: edgeBackActive && !downloadDialog && !actions && blockTarget == nil && reading == nil && !composing) { dismiss() })
         }
-            .onAppear { edgeBackActive = true }.onDisappear { edgeBackActive = false }
-            .scrollIndicators(.hidden).background(.black).toolbar(.hidden, for: .navigationBar).navigationBarBackButtonHidden(true)
-            .safeAreaInset(edge: .top, spacing: 0) {
+        .onAppear { edgeBackActive = true }.onDisappear { edgeBackActive = false }
+        .scrollIndicators(.hidden).background(.black).toolbar(.hidden, for: .navigationBar).navigationBarBackButtonHidden(true)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !searching {
                 ReaderHeader { ReaderBack(title: "Groups") { dismiss() } } right: {
-                    Button { if server.id == "demo" { store.refresh() } else { Task { await checkMessages() } } } label: { Image(systemName: "arrow.clockwise").font(.system(size: 21)).frame(width: 44, height: 44) }.accessibilityLabel("Refresh").disabled(checking || store.busy)
+                    Button { if server.id == "demo" { store.refresh(group: group) } else { Task { await checkMessages() } } } label: { Image(systemName: "arrow.clockwise").font(.system(size: 21)).frame(width: 44, height: 44) }.accessibilityLabel("Refresh").disabled(checking || store.busy)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !searching {
                 ReaderBottom {
-                    Button(unreadOnly ? "All" : "Unread") { unreadOnly.toggle() }.frame(minHeight: 44)
+                    Button { composing = true } label: { Image(systemName: "square.and.pencil").font(.system(size: 23)).frame(width: 44, height: 44) }.accessibilityLabel("New post")
                     Spacer()
-                    Text("\(threads.reduce(0) { $0 + $1.unread }) Unread Messages").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    Text("\(store.snapshot.refreshCounts?[groupKey(server.id, group)] ?? 0) New Messages").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                     Spacer()
-                    Text("\(threads.count)").font(.footnote).foregroundStyle(.gray).frame(width: 44)
+                    Button { actions = true } label: { Image(systemName: "square.and.arrow.up").font(.system(size: 23)).frame(width: 44, height: 44) }.accessibilityLabel("Thread actions")
                 }
             }
-            .task { if server.id != "demo" { store.rebuild(server: server, group: group) } }
-            .sheet(isPresented: $downloadDialog) {
-                VStack(spacing: 20) {
-                    Text("\(availableNumbers.count) new messages").font(.headline)
-                    Text("Next 由本機最新已下載文章之後開始；Latest 取最新一批。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Picker("Download", selection: $quantity) { Text("500").tag(500); Text("1,000").tag(1000); Text("2,000").tag(2000); Text("More…").tag(-1); Text("All").tag(0) }.pickerStyle(.menu)
-                    if quantity == -1 { TextField("Quantity", text: $customQuantity).keyboardType(.numberPad).textFieldStyle(.roundedBorder) }
-                    Button("Next \(chosenCount)") { startDownload(latest: false) }.disabled(chosenCount < 1)
-                    Button("Latest \(chosenCount)") { startDownload(latest: true) }.disabled(chosenCount < 1)
-                    Button("Cancel") { downloadDialog = false }
-                }.padding(24).presentationDetents([.medium, .large])
+        }
+        .task { if server.id != "demo" { store.rebuild(server: server, group: group) } }
+        .task(id: searchScope + "|" + query) {
+            guard searching, searchScope == "Message", !query.isEmpty, server.id != "demo" else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+                while store.busy { try await Task.sleep(for: .milliseconds(100)) }
+                try await store.searchBodies(server: server, group: group)
             }
-            .navigationDestination(item: $reading) { item in ArticleScreen(route: item.route, initial: item.initial, onReplySent: { reading = nil }) }
+            catch is CancellationError { }
+            catch { store.storageError = error.localizedDescription }
+        }
+        .overlay {
+            if actions {
+                ReaderActionSheet(items: [
+                    ReaderAction(title: "Mark All Read", action: markAllRead),
+                    ReaderAction(title: unreadOnly ? "Show All Messages" : "Show Unread Only", action: { unreadOnly.toggle() }),
+                    ReaderAction(title: favouritesOnly ? "Show All Messages" : "Show Favourites Only", action: { favouritesOnly.toggle() }),
+                    ReaderAction(title: latestReply ? "Sort Threads by Original Post" : "Sort Threads by Latest Reply", action: { latestReply.toggle() })
+                ], cancel: { actions = false })
+            }
+        }
+        .sheet(item: $blockTarget) { target in BlockUserSheet(target: target) { } }
+        .sheet(isPresented: $composing) {
+            ReplyScreen(thread: NewsThread(id: "new|" + groupKey(server.id, group), subject: "", messages: [], serverID: server.id == "demo" ? nil : server.id, groupName: group), message: NewsMessage(id: "new", author: "", body: ""), isNewPost: true, onSent: { composing = false })
+        }
+        .sheet(isPresented: $downloadDialog) {
+            VStack(spacing: 20) {
+                Text("\(availableNumbers.count) new messages").font(.headline)
+                Text("Next 由本機最新已下載文章之後開始；Latest 取最新一批。").font(.footnote).foregroundStyle(.secondary)
+                Picker("Download", selection: $quantity) { Text("500").tag(500); Text("1,000").tag(1000); Text("2,000").tag(2000); Text("More…").tag(-1); Text("All").tag(0) }.pickerStyle(.menu)
+                if quantity == -1 { TextField("Quantity", text: $customQuantity).keyboardType(.numberPad).textFieldStyle(.roundedBorder) }
+                Button("Next \(chosenCount)") { startDownload(latest: false) }.disabled(chosenCount < 1)
+                Button("Latest \(chosenCount)") { startDownload(latest: true) }.disabled(chosenCount < 1)
+                Button("Cancel") { downloadDialog = false }
+            }.padding(24).presentationDetents([.medium, .large])
+        }
+        .navigationDestination(item: $reading) { item in ArticleScreen(route: item.route, initial: item.initial, onReplySent: { reading = nil }) }
+    }
+    var searchBar: some View {
+        VStack(spacing: 8) {
+            HStack {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.gray)
+                    TextField("搜尋", text: $query).textInputAutocapitalization(.never).autocorrectionDisabled().focused($searchFocused).submitLabel(.search)
+                        .onChange(of: searchFocused) { _, value in if value { searching = true } }
+                    if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.gray) } }
+                }.padding(10).background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 10))
+                if searching { Button("取消") { query = ""; searchFocused = false; searching = false } }
+            }
+            if searching {
+                Picker("Search scope", selection: $searchScope) { Text("Subject").tag("Subject"); Text("Sender").tag("Sender"); Text("Message").tag("Message") }.pickerStyle(.segmented)
+                if searchScope == "Message" { Text("搜尋本機已下載文章；未載入嘅內文會連線載入。").font(.caption).foregroundStyle(.secondary) }
+            }
+        }.padding(.horizontal, 16).padding(.vertical, 8)
+    }
+    func messageRow(_ thread: NewsThread, _ message: NewsMessage, depth: Int) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(message.read ? Color.clear : Color.blue).frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text(message.subject ?? (depth == 0 ? thread.subject : "Re: \(thread.subject)")).font(.system(size: 17)).foregroundStyle(message.read ? .gray : .white).lineLimit(1)
+                    if message.favourite == true { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow) }
+                }
+                Text(message.author).font(.system(size: 13)).foregroundStyle(.gray).lineLimit(1)
+            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                .onTapGesture {
+                    let route = threads.flatMap { t in t.tree.map { ReadingItem(threadID: t.id, messageID: $0.message.id) } }
+                    reading = ReadingSession(route: route, initial: ReadingItem(threadID: thread.id, messageID: message.id))
+                }.accessibilityAddTraits(.isButton)
+            if depth == 0 {
+                if thread.messages.count > 1 {
+                    Button { toggle(thread.id) } label: {
+                        Text("\(thread.unread)/\(thread.messages.count)").font(.system(size: 15, weight: .semibold)).foregroundStyle(thread.unread > 0 ? .blue : .gray)
+                            .padding(.horizontal, 7).padding(.vertical, 5).overlay(RoundedRectangle(cornerRadius: 10).stroke(.gray, lineWidth: 1))
+                            .frame(minWidth: 44, minHeight: 44)
+                    }.accessibilityLabel("Toggle thread")
+                } else { Image(systemName: "chevron.right").foregroundStyle(.gray).frame(width: 32) }
+            }
+        }.padding(.leading, 12 + CGFloat(min(depth, 12)) * 18).padding(.trailing, 12).frame(minHeight: 70).contentShape(Rectangle())
+            .onLongPressGesture { blockTarget = BlockTarget(message: message, serverID: server.id, group: group) }
     }
     var chosenCount: Int { min(availableNumbers.count, quantity == 0 ? availableNumbers.count : quantity == -1 ? max(0, Int(customQuantity) ?? 0) : quantity) }
     func checkMessages() async {
@@ -414,18 +645,65 @@ struct ThreadScreen: View {
             let known = Set(cache.messages.compactMap(\.articleNumber))
             availableNumbers = all.filter { !known.contains($0) && $0 > (cache.newest ?? 0) }
             if availableNumbers.count > 500 { quantity = 500; downloadDialog = true }
-            else if !availableNumbers.isEmpty { await store.download(server: server, group: group, numbers: availableNumbers) }
+            else { await store.download(server: server, group: group, numbers: availableNumbers) }
         } catch is CancellationError { return }
         catch { store.storageError = error.localizedDescription }
     }
     func startDownload(latest: Bool) {
-        let count = chosenCount
-        guard count > 0 else { return }
+        let count = chosenCount; guard count > 0 else { return }
         let numbers = latest ? Array(availableNumbers.suffix(count)) : Array(availableNumbers.prefix(count))
         downloadDialog = false
         Task { await store.download(server: server, group: group, numbers: numbers) }
     }
+    func markAllRead() {
+        for thread in store.snapshot.threads where server.id == "demo" ? (thread.serverID == nil && (thread.groupName ?? "general.chat") == group) : (thread.serverID == server.id && thread.groupName == group) { store.markThreadRead(thread.id) }
+    }
     func toggle(_ id: String) { if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) } }
+}
+struct BlockTarget: Identifiable {
+    var message: NewsMessage
+    var serverID: String
+    var group: String
+    var id: String { serverID + "|" + message.id }
+}
+struct BlockUserSheet: View {
+    @EnvironmentObject var store: ReaderStore
+    @Environment(\.dismiss) var dismiss
+    var target: BlockTarget
+    var onBlocked: () -> Void
+    @State private var ip: String?
+    @State private var loading = true
+    @State private var saving = false
+    @State private var error: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Block 呢個用戶？").font(.title3).bold()
+            Text("Username: \(senderIdentity(target.message.author).name)")
+            Text("Email: \(senderIdentity(target.message.author).email)")
+            Text("Sender IP: \(ip ?? (loading ? "讀取中…" : "未有提供"))").monospaced()
+            Text("此 server 所有 groups 內，相同 sender IP 嘅 messages 及子回覆串都會隱藏；共用 IP 嘅人亦會受影響。").font(.footnote).foregroundStyle(.secondary)
+            if loading || saving { ProgressView(saving ? store.progress : "讀取文章 sender IP…") }
+            if let error { Text(error).font(.footnote).foregroundStyle(.orange) }
+            if !loading && ip == nil { Text("文章未提供有效 sender IP，無法按 IP Block。").font(.footnote) }
+            Button("Block 此 IP", role: .destructive) {
+                guard let ip else { return }; saving = true
+                Task {
+                    do {
+                        let identity = senderIdentity(target.message.author)
+                        try await store.blockUser(BlockedUser(username: identity.name, email: identity.email, ip: ip), serverID: target.serverID)
+                        dismiss(); onBlocked()
+                    } catch { self.error = error.localizedDescription }
+                    saving = false
+                }
+            }.disabled(loading || saving || ip == nil || store.busy).frame(maxWidth: .infinity, minHeight: 44)
+            Button("取消") { dismiss() }.disabled(saving).frame(maxWidth: .infinity, minHeight: 44)
+        }.padding(24).presentationDetents([.medium, .large]).interactiveDismissDisabled(saving)
+        .task {
+            defer { loading = false }
+            do { ip = try await store.sourceIP(message: target.message, serverID: target.serverID, group: target.group) }
+            catch { self.error = error.localizedDescription }
+        }
+    }
 }
 
 extension ReadingItem: Hashable {}
@@ -437,6 +715,8 @@ struct ArticleScreen: View {
     var onReplySent: () -> Void
     @State private var index = 0
     @State private var composing = false
+    @State private var actions = false
+    @State private var blockTarget: BlockTarget?
     @State private var edgeBackActive = false
     init(route: [ReadingItem], initial: ReadingItem, onReplySent: @escaping () -> Void) {
         self.route = route; self.initial = initial; self.onReplySent = onReplySent
@@ -450,7 +730,13 @@ struct ArticleScreen: View {
             if let thread, let message {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(thread.subject).font(.title3).bold()
-                    Text(message.author).foregroundStyle(.secondary)
+                    HStack {
+                        Text(message.author).foregroundStyle(.secondary).textSelection(.enabled)
+                        Spacer()
+                        Button { blockTarget = BlockTarget(message: message, serverID: thread.serverID ?? "demo", group: thread.groupName ?? "general.chat") } label: {
+                            Image(systemName: "person.crop.circle.badge.xmark").font(.system(size: 23)).frame(width: 44, height: 44)
+                        }.accessibilityLabel("Block sender IP")
+                    }
                     Divider()
                     if store.loadingArticles.contains(message.id) { ProgressView("Loading message…") }
                     if message.bodyLoaded == false && !store.loadingArticles.contains(message.id) { Button("Retry loading message") { Task { await store.loadArticle(message.id, threadID: item.threadID) } } }
@@ -462,7 +748,7 @@ struct ArticleScreen: View {
                     ForEach(message.warnings ?? [], id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
                 }.padding(16).frame(maxWidth: .infinity, minHeight: 800, alignment: .topLeading)
                     .background(HorizontalSwipe { move($0) })
-                    .background(EdgeBack(active: edgeBackActive && !composing) { dismiss() })
+                    .background(EdgeBack(active: edgeBackActive && !composing && !actions && blockTarget == nil) { dismiss() })
             }
             Color.clear.frame(height: 1)
                 .frame(maxWidth: .infinity)
@@ -470,20 +756,37 @@ struct ArticleScreen: View {
             .onAppear { edgeBackActive = true }.onDisappear { edgeBackActive = false }
             .scrollIndicators(.hidden).toolbar(.hidden, for: .navigationBar).navigationBarBackButtonHidden(true)
             .safeAreaInset(edge: .top, spacing: 0) {
-                ReaderHeader { ReaderBack(title: "Back") { dismiss() } } right: { Color.clear.frame(width: 44, height: 44) }
+                ReaderHeader { ReaderBack(title: thread?.groupName ?? "general.chat") { dismiss() } } right: { Color.clear.frame(width: 44, height: 44) }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ReaderBottom {
+                    Button { composing = true } label: { Image(systemName: "arrowshape.turn.up.left").frame(width: 44, height: 44) }.accessibilityLabel("Reply")
+                    Spacer(minLength: 0)
                     Button { move(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }.disabled(index == 0).accessibilityLabel("Previous message")
-                    Spacer()
-                    Button(thread?.serverID == nil || thread?.groupName == "test.test" ? "Reply" : "Read only") { composing = true }.frame(minWidth: 80, minHeight: 44).disabled(thread?.serverID != nil && thread?.groupName != "test.test")
-                    Spacer()
+                    Spacer(minLength: 0)
                     Button { move(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }.disabled(index + 1 >= route.count).accessibilityLabel("Next message")
+                    Spacer(minLength: 0)
+                    Button { moveThread(-1) } label: { Image(systemName: "chevron.up").frame(width: 44, height: 44) }.disabled(threadDestination(-1) == nil).accessibilityLabel("Previous thread")
+                    Spacer(minLength: 0)
+                    Button { moveThread(1) } label: { Image(systemName: "chevron.down").frame(width: 44, height: 44) }.disabled(threadDestination(1) == nil).accessibilityLabel("Next thread")
+                    Spacer(minLength: 0)
+                    Button { actions = true } label: { Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44) }.accessibilityLabel("Message actions")
+                }.font(.system(size: 23))
+            }
+            .overlay {
+                if actions {
+                    ReaderActionSheet(items: [
+                        ReaderAction(title: message?.favourite == true ? "Remove Favourite" : "Mark As Favourite", action: { store.favourite(item.messageID, threadID: item.threadID) }),
+                        ReaderAction(title: "Mark Thread Read", action: { store.markThreadRead(item.threadID) })
+                    ], cancel: { actions = false })
                 }
             }
+            .sheet(item: $blockTarget) { target in BlockUserSheet(target: target) { dismiss() } }
             .task(id: item.messageID) { store.markRead(item.messageID, threadID: item.threadID); await store.loadArticle(item.messageID, threadID: item.threadID) }
             .sheet(isPresented: $composing) { if let thread, let message { ReplyScreen(thread: thread, message: message, onSent: onReplySent) } }
     }
+    func threadDestination(_ delta: Int) -> Int? { adjacentThreadIndex(threadIDs: route.map(\.threadID), index: index, delta: delta) }
+    func moveThread(_ delta: Int) { if let destination = threadDestination(delta) { index = destination; store.markRead(item.messageID, threadID: item.threadID) } }
     func move(_ delta: Int) {
         guard route.indices.contains(index + delta) else { return }
         index += delta; store.markRead(item.messageID, threadID: item.threadID)
@@ -494,6 +797,7 @@ struct ReplyScreen: View {
     @Environment(\.dismiss) var dismiss
     var thread: NewsThread
     var message: NewsMessage
+    var isNewPost = false
     var onSent: () -> Void
     @State private var draft = ReplyDraft()
     @State private var showingSent = false
@@ -513,7 +817,9 @@ struct ReplyScreen: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Re: \(thread.subject)").padding(12)
+                if isNewPost {
+                    TextField("Subject", text: Binding(get: { draft.subject ?? "" }, set: { draft.subject = $0; edited() })).padding(12).disabled(sending)
+                } else { Text("Re: \(thread.subject)").padding(12) }
                 Divider()
                 if loadingHistory { ProgressView("Loading reply history…").padding() }
                 TextEditor(text: Binding(get: { draft.text }, set: { draft.text = $0; edited() }))
@@ -550,15 +856,15 @@ struct ReplyScreen: View {
                 if draft.status == "uncertain" || draft.status == "duplicate" {
                     Button("用新識別碼再試") { draft.changed(); saveDraft(); errorText = nil }.padding(12).disabled(sending)
                 }
-                Text(isLive ? "Send 會公開回覆到 \(thread.groupName ?? "")；相片放喺 history 前。" : "Demo：只儲存本機回覆，Refresh 先顯示。")
+                Text(isLive ? "Send 會公開發送到 \(thread.groupName ?? "")；相片放喺 history 前。" : "Demo：只儲存本機回覆，Refresh 先顯示。")
                     .font(.footnote).foregroundStyle(.secondary).padding(12)
             }.background(.black).toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    ReaderHeader(title: "Reply") {
+                    ReaderHeader(title: isNewPost ? "New Post" : "Reply") {
                         Button("Cancel") { dismiss() }.frame(minHeight: 44).disabled(sending)
                     } right: {
                         Button(sending ? "Sending…" : "Send") { Task { await send() } }.frame(minHeight: 44)
-                            .disabled(sending || loadingHistory || !historyReady || importing || !identityReady || (replyTextSections(draft.text).own.isEmpty && draft.photos.isEmpty))
+                            .disabled(sending || loadingHistory || !historyReady || importing || !identityReady || (isNewPost && (draft.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (replyTextSections(draft.text).own.isEmpty && draft.photos.isEmpty))
                     }
                 }
                 .task { await loadHistory() }
@@ -579,12 +885,13 @@ struct ReplyScreen: View {
                 .interactiveDismissDisabled(sending)
                 .alert(isLive ? "Sent" : "Saved locally", isPresented: $showingSent) {
                     Button("OK") { dismiss(); onSent() }
-                } message: { Text("回覆已保存。返回列表撳 Refresh 先會以未讀顯示。") }
+                } message: { Text("已發送。返回列表撳 Refresh 先會以未讀顯示。") }
         }
     }
     func loadHistory() async {
         loadingHistory = true; defer { loadingHistory = false }
         if let saved = store.snapshot.replyDrafts?[draftKey] { draft = saved; historyReady = true; return }
+        if isNewPost { historyReady = true; saveDraft(); return }
         do { draft.text = "\n\n" + (try await store.replyHistory(thread: thread, message: message)); historyReady = true; saveDraft(); errorText = nil }
         catch { errorText = "未能載入父訊息 history：" + error.localizedDescription }
     }
@@ -601,11 +908,15 @@ struct ReplyScreen: View {
         if !isLive {
             var reply = NewsMessage(id: draft.messageID, parentID: message.id, author: server.name, body: draft.text)
             reply.images = draft.photos.map(\.data)
-            store.snapshot.pending.append(PendingReply(threadID: thread.id, message: reply))
+            if isNewPost {
+                reply.parentID = nil
+                let newThread = NewsThread(id: draft.messageID, subject: draft.subject ?? "", messages: [reply], groupName: thread.groupName)
+                store.snapshot.pending.append(PendingReply(threadID: newThread.id, message: reply, newThread: newThread))
+            } else { store.snapshot.pending.append(PendingReply(threadID: thread.id, message: reply)) }
             store.snapshot.replyDrafts?[draftKey] = nil; showingSent = true; return
         }
-        let refs = Array(NSOrderedSet(array: (message.references ?? []) + [message.id])) as? [String] ?? [message.id]
-        let subject = thread.subject.lowercased().hasPrefix("re:") ? thread.subject : "Re: " + thread.subject
+        let refs = isNewPost ? [] : (Array(NSOrderedSet(array: (message.references ?? []) + [message.id])) as? [String] ?? [message.id])
+        let subject = isNewPost ? (draft.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : (thread.subject.lowercased().hasPrefix("re:") ? thread.subject : "Re: " + thread.subject)
         let fingerprint = postingFingerprint(text: draft.text, photos: draft.photos, name: server.name, email: server.email, subject: subject, refs: refs)
         if let old = draft.fingerprint, old != fingerprint { draft.changed() }
         draft.fingerprint = fingerprint

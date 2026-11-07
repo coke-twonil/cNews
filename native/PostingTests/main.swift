@@ -30,3 +30,8 @@ if CommandLine.arguments.count > 1 {
     let readback = try client.rawArticle(group: "test.fixture", identifier: draft.messageID)
     check(try! matchingArticle(readback, payload), "POST transport and exact readback")
 }
+var topic = ReplyDraft(text: "A new topic", subject: "New topic", photos: [photo])
+let topicPayload = try buildReply(draft: topic, server: server, group: "test.test", subject: topic.subject!, refs: [])
+check(articleHeaders(topicPayload)["references"] == nil && articleHeaders(topicPayload)["in-reply-to"] == nil, "New topic has no reply ancestry")
+let topicRestored = try JSONDecoder().decode(ReplyDraft.self, from: JSONEncoder().encode(topic))
+check(topicRestored.subject == "New topic" && topicRestored.photos.count == 1, "New post subject and photo survive draft restoration")

@@ -119,6 +119,42 @@ final class NNTPClient: @unchecked Sendable {
         }
         return result
     }
+    /// Bulk source headers avoid fetching article bodies just to apply an IP block.
+    func senderIPs(group: String, numbers: [Int]) throws -> [Int: String] {
+        guard let first = numbers.min(), let last = numbers.max() else { return [:] }
+        try select(group)
+        var values: [Int: [String: String]] = [:]
+        var supported = false
+        for field in ["nntp-posting-host", "injection-info", "x-originating-ip", "x-trace"] {
+            try send("HDR \(field) \(first)-\(last)")
+            var response = try line()
+            if response.hasPrefix("500") || response.hasPrefix("501") {
+                try send("XHDR \(field) \(first)-\(last)"); response = try line()
+            }
+            if response.hasPrefix("225") || response.hasPrefix("221") {
+                supported = true
+                let wanted = Set(numbers)
+                for data in try multiline() {
+                    let text = latin(data)
+                    if let space = text.firstIndex(of: " "), let number = Int(text[..<space]), wanted.contains(number) {
+                        values[number, default: [:]][field] = String(text[text.index(after: space)...])
+                    }
+                }
+            } else if !(response.hasPrefix("500") || response.hasPrefix("501") || response.hasPrefix("503") || response.hasPrefix("423")) {
+                throw NewsError.failure(response)
+            }
+        }
+        if !supported {
+            for number in numbers {
+                do {
+                    _ = try command("HEAD \(number)", code: "221")
+                    var raw = Data(); for line in try multiline() { raw.append(line); raw.append(contentsOf: [13,10]) }
+                    values[number] = newsHeaderFields(raw)
+                } catch { if !error.localizedDescription.hasPrefix("423") { throw error } }
+            }
+        }
+        return values.compactMapValues { senderIPFromHeaders($0) }
+    }
     func rawArticle(group: String, identifier: String) throws -> Data {
         guard Int(identifier) != nil || messageIDs(identifier) == [identifier] else { throw NewsError.failure("文章識別碼無效") }
         try select(group)
@@ -129,7 +165,8 @@ final class NNTPClient: @unchecked Sendable {
         return raw
     }
     func article(group: String, number: Int) throws -> DecodedArticle {
-        try decodeArticle(rawArticle(group: group, identifier: String(number)))
+        let raw = try rawArticle(group: group, identifier: String(number))
+        var decoded = try decodeArticle(raw); decoded.senderIP = senderIPFromHeaders(newsHeaderFields(raw)); return decoded
     }
     func post(_ article: Data) throws {
         _ = try command("POST", code: "340")
@@ -209,7 +246,7 @@ func decodeWords(_ source: String) -> String {
     }
     return decodeCharset(latinData(text))
 }
-struct DecodedArticle { var body: String; var images: [Data]; var warnings: [String] }
+struct DecodedArticle { var body: String; var images: [Data]; var warnings: [String]; var senderIP: String? }
 func decodeArticle(_ data: Data) throws -> DecodedArticle {
     var totalImages = 0
     func decodePart(_ data: Data, depth: Int) throws -> DecodedArticle {
@@ -258,4 +295,30 @@ func decodeArticle(_ data: Data) throws -> DecodedArticle {
         return DecodedArticle(body: "", images: [], warnings: ["暫未支援內容：\(mime)"])
     }
     return try decodePart(data, depth: 0)
+}
+
+func newsHeaderFields(_ raw: Data) -> [String: String] {
+    let text = latin(raw).replacingOccurrences(of: "\r\n", with: "\n")
+    let head = text.components(separatedBy: "\n\n")[0].replacingOccurrences(of: "\n[ \t]+", with: " ", options: .regularExpression)
+    var fields: [String: String] = [:]
+    for line in head.components(separatedBy: "\n") {
+        if let colon = line.firstIndex(of: ":") { fields[String(line[..<colon]).lowercased()] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces) }
+    }
+    return fields
+}
+func senderIPFromHeaders(_ fields: [String: String]) -> String? {
+    // Never use Path, server IP or Message-ID as a sender address.
+    for key in ["nntp-posting-host", "injection-info", "x-originating-ip", "x-trace"] {
+        guard var value = fields[key] else { continue }
+        if key == "injection-info" {
+            guard let regex = try? NSRegularExpression(pattern: #"posting-host="?([^"; ]+)"#, options: .caseInsensitive),
+                  let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)), let range = Range(match.range(at: 1), in: value) else { continue }
+            value = String(value[range])
+        }
+        if let ip = canonicalIP(value) { return ip }
+        for token in value.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "();,\""))) {
+            if let ip = canonicalIP(token) { return ip }
+        }
+    }
+    return nil
 }

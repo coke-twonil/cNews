@@ -6,7 +6,7 @@
 
 Device Hub → yrNewsEx → **news.twonil.hk · Live** 下面嘅 general.chat。Demo 區維持本機操作示例。
 
-Live 直接用 Swift／Network.framework TCP 連 NNTP，唔依賴瀏覽器、localhost 或 Python helper。Server 設定 → Subscribe Group 由 LIST ACTIVE 載入目錄，搜尋／打剔／取消打剔，再返回按 Done 保存。Name／Email 屬 server 設定；今階段只讀，未填身份亦可閱讀。既有 server 地址／port 固定以免快取混淆，另一地址請新增 server。
+Live 直接用 Swift／Network.framework TCP 連 NNTP，唔依賴瀏覽器、localhost 或 Python helper。Server 設定 → Subscribe Group 由 LIST ACTIVE 載入目錄，搜尋／打剔／取消打剔，再返回按 Done 保存。Name／Email 屬 server 設定；發文前要填身份，未填亦可閱讀。既有 server 地址／port 固定以免快取混淆，另一地址請新增 server。
 
 進群組只讀取本機快取；只按 Refresh 先用 LISTGROUP 取實際可用編號，超過 500 新文先問總數及下載數量：500、1,000、2,000、自訂、All。Next 從本機最新已下載編號之後向新取，Latest 取最新一批。略過舊文唔算新文；按最新用戶要求移除 Get Older Messages 入口，唔提供補下載舊文操作。每批最多 500 headers，完成一批先保存；中途錯誤保留完成批次。取消選單唔下載 headers。
 
@@ -14,11 +14,11 @@ Live 直接用 Swift／Network.framework TCP 連 NNTP，唔依賴瀏覽器、loc
 
 按 References／Message-ID 組 thread，唔按 subject 合併；缺失父文保留可見內容。已讀及快取分 server／group 保存。119 普通 NNTP；563 由系統驗證 TLS 憑證；其他 port 目前普通 TCP。暫未支援帳密登入或 STARTTLS。
 
-Live **test.test 已開放真實相片回覆**；其他群組保持 Read only。Demo Send 仍只保存本機回覆，Refresh 才以未讀加入。
+Live 支援在目前 group 開新主題及回覆，實際由 server 決定是否接受 POST。Demo Send 只保存本機文章，Refresh 才以未讀加入。
 
 ## 操作及外觀
 
-自訂平面藍色導覽列、頂部搜尋、全闊深灰工具列；文章無灰／藍背景 highlight。列表右 swipe 展開，任一子回覆左 swipe 收起整串。UIKit 方向辨識器同垂直 scroll pan 協作，唔使用會搶走上下捲動嘅 SwiftUI DragGesture。
+自訂平面藍色導覽列、頂部搜尋、全闊深灰工具列；文章無灰／藍背景 highlight。列表左右 swipe 都切換整串開／收狀態；保留層級縮排，移除 L 形連接符。UIKit 方向辨識器同垂直 scroll pan 協作，唔使用會搶走上下捲動嘅 SwiftUI DragGesture。
 
 閱讀按 DFS 路線左右切換，串尾／串頭可跨至相鄰 thread；開文章前固定路線，唔受已讀篩選影響。Demo Reply 單一 TextEditor，引用目前訊息及三代父文，唔引用其他分支。視覺仍需真機對照，唔代表已逐像素完全一致。
 
@@ -44,7 +44,7 @@ xcodebuild -project native/yrNewsEx.xcodeproj -scheme yrNewsEx \
   -derivedDataPath /tmp/yrnewsex-build CODE_SIGNING_ALLOWED=NO build
 ```
 
-未完成原生項目：其他群組發文／回覆、新主題發文、真機相機驗收、圖片放大、收藏、cache retention／儲存容量管理、真 iPhone 驗收及簽名。Bundle identifier 暫用 `org.yrnewsex.reader`；正式發佈前改成擁有人帳戶可用識別碼。模擬器唔需要付費開發者會籍。
+未完成原生項目：真機相機及完整功能驗收、圖片放大、cache retention／儲存容量管理。Bundle identifier 暫用 `org.yrnewsex.reader`；正式發佈前改成擁有人帳戶可用識別碼。模擬器唔需要付費開發者會籍。
 
 最新介面修正：移除 Get Older Messages 按鈕及下載選單內嘅補舊文提示；保留 Refresh／Next／Latest，既有快取保留。上文驗證記錄描述移除前測試。
 
@@ -96,3 +96,20 @@ python3 scripts/test_native_nntp.py /tmp/yrnewsex-posting-tests
 真機安裝仍需 Xcode 實際連通並信任 iPhone，以及有效 development certificate／profile。成功編譯未簽名 ARM64 app 唔代表已裝落手機。
 
 真機安裝及逐項試用步驟見 [DEVICE_TESTING.md](DEVICE_TESTING.md)。2026-11-06 已完成一次 iPhone 18 Pro／iOS 27.0.1 真機安裝及啟動；個人憑證／profile 只保留本機。
+
+
+## 2026-11-07 真機回饋修改
+
+- Threads：左右 swipe 都 toggle 整串；左邊緣右 swipe 仍返回 Groups。回覆保留縮排、移除 L 線；多篇 thread 以圓角框顯示未讀／總數，零未讀為灰色，其他為藍色。
+- 底部中間保存最近一次手動 Refresh 實際新增文章數（每 server／group 獨立）；閱讀、收藏、Block 及篩選唔改變該數字。未曾 Refresh 或更新前冇歷史數值則顯示 0，下一次零新文 Refresh 亦更新為 0。取消下載選單保留上次數值，部分下載失敗保存已完成批次數。
+- 左下 New Post 支援標題、文字及最多三張相；身份沿用 server Name／Email。新主題冇 References／In-Reply-To，成功後保持原列表，手動 Refresh 先加入。右下係操作選單（唔係分享）：Mark All Read、Show Unread Only、Show Favourites Only、Sort Threads by Latest Reply、Cancel；冇 Get Older Messages。
+- Search 啟動後顯示 Subject／Sender／Message 三段選擇同取消。搜尋範圍係本機已下載文章；Message 搜尋會按需載入呢批文章嘅未快取正文，顯示進度，只保存搜尋文字，唔一併快取圖片；唔下載新文章或自動 Refresh。
+- 文章底部依次 Reply、上一篇、下一篇、上一條 thread 第一篇、下一條 thread 第一篇、操作選單。選單有 Mark As Favourite／Remove Favourite、Mark Thread Read、Cancel。收藏及已讀持久保存，前後閱讀維持原 DFS 路線，冇恢復頂部篇數。
+- 長按列表任何 message 或撳內文 email 行右邊 Block icon，確認視窗顯示 username、email、sender IP。按文章 sender IP（唔係 email）封鎖，同一 server 所有 groups 生效；相同 IP 文章及整串子回覆隱藏，原快取保留。Server Settings 的 Blocked Users 列出三項身份並可 Unblock，恢復文章。
+- Sender IP 讀取 NNTP-Posting-Host、Injection-Info posting-host、X-Originating-IP 或 X-Trace；唔用 relay/server IP 或 DNS 猜測。支援 IPv4／IPv6 正規化；無有效來源 IP 時停用 Block 並提示。HDR／XHDR 批次讀取，舊 server 用 HEAD；首次 Block 會補取該 server 已快取文章來源 headers（包括已取消訂閱但仍有快取嘅 groups），唔改已讀或 Refresh 數值。
+- Block 名單只保存本機，每 server 獨立。IP 並非永久個人身份：共用 IP 一同受影響，對方換 IP 後唔會按原 IP 命中。
+
+今輪測試不向公開 newsgroup 發文；新 POST MIME／相片與來源 headers 使用 localhost fixture，UI 新主題使用 Demo。真 server 只讀檢查 source headers，最近三篇有兩篇提供有效 sender IP。
+
+
+本輪驗證：70 項原生測試通過（25 模型、19 NNTP／解碼、13 發文、13 embed）。模擬器實測左右兩方向重複 toggle、Sender／Message 搜尋、Demo 新主題發送後手動 Refresh 先出現、閱讀後 Refresh 數字不變、文章六個按鈕及收藏、長按 Block、Server Settings 三項身份與 Unblock 恢復。Block 測試只修改模擬器本機設定，完成後已解除；無新增公開測試文章。

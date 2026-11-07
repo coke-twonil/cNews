@@ -16,11 +16,15 @@ Apple 文件：[開發者模式](https://developer.apple.com/documentation/xcode
 
 - **閱讀**：Groups 揀 `news.twonil.hk · Live` 下面嘅 general.chat。手機同模擬器資料獨立；首次進 group 冇文章屬正常，手動按 Refresh 先下載。
 - **下載**：超過 500 篇時確認總數；Latest 取最新一批，Next 從本機最新已下載編號之後向新取。入 group 唔自動刷新，冇 Get Older Messages。
-- **列表**：右 swipe 展開 thread，任何子回覆左 swipe 收起整串；上下捲動唔誤開文章。所有訊息背景保持黑色。
+- **列表**：左右 swipe 都切換 thread 展開／收起；子回覆保留縮排但冇 L 線；上下捲動唔誤開文章。所有訊息背景保持黑色。
 - **閱讀手勢**：中間左／右 swipe 下一篇／上一篇，串尾／串頭跨 thread；由左邊緣右 swipe 返回 thread 清單，再由清單左邊緣右 swipe 返回 Groups。文章頂部冇篇數顯示。
 - **圖片／embed**：打開已知有相片或社交網址嘅文章，確認圖片比例、IG／X／YouTube 內容及失敗時嘅原連結／預覽；播放、跳去已安裝 app 同預設瀏覽器要喺真機逐項驗收。
-- **回覆**：目前只開放 test.test。先在 server 層設定 Name／Email；Send 會公開該身份、文字同附件，請用測試內容。最多三張相，Choose Existing／Take a New Photo 合計計數；相機由用戶按 iOS 提示授權。
+- **回覆**：建議先用 test.test 試新 post／回覆。先在 server 層設定 Name／Email；Send 會公開該身份、文字同附件，請用測試內容。最多三張相，Choose Existing／Take a New Photo 合計計數；相機由用戶按 iOS 提示授權。
 - **引用／發送**：單一編輯框保留最多四代父鏈 history；發出後次序為新文字 → 相片 → history。成功返回發送前列表，手動 Refresh 先以未讀加入。
+- **Refresh 數字**：底部係最近一次 Refresh 新增篇數，閱讀／收藏／篩選後不變；再次 Refresh 無新文就顯示 0。
+- **文章工具列**：左至右 Reply、上一篇、下一篇、上一條 thread 第一篇、下一條 thread 第一篇、操作選單。文章選單試收藏／取消收藏及 Mark Thread Read；列表選單試全部已讀、未讀／收藏篩選及按最新回覆排序。
+- **搜尋**：撳搜尋欄後試 Subject／Sender／Message。Message 會連線載入本機文章未快取內文；唔係搜尋整個 server，也唔會下載新文。
+- **Block**：長按列表一篇 message，或點內文 header 右側 Block icon，確認 username／email／sender IP。Block 後同 server 其他 groups 同 IP 及其子分支都隱藏；到 Server Settings → Blocked Users 核對身份及 Unblock，確認恢復。冇 sender IP 嘅文章唔可以 Block；第一次要等舊快取來源 headers 讀取完成。
 - **草稿**：用未發草稿測試文字／附件重開後保存，失敗唔丟內容；「用新識別碼再試」唔會自動發文。
 
 ## 簽名期限

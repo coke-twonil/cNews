@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 struct NewsMessage: Identifiable, Codable, Equatable {
     var id: String
@@ -12,6 +13,10 @@ struct NewsMessage: Identifiable, Codable, Equatable {
     var bodyLoaded: Bool?
     var images: [Data]?
     var warnings: [String]?
+    var senderIP: String?
+    var senderIPChecked: Bool?
+    var favourite: Bool?
+    var searchBody: String?
 }
 struct NewsThread: Identifiable, Codable {
     var id: String
@@ -55,10 +60,12 @@ struct NewsServer: Identifiable, Codable {
     var name: String
     var email: String
     var groups: [String]
+    var blockedUsers: [BlockedUser]?
 }
 struct PendingReply: Codable {
     var threadID: String
     var message: NewsMessage
+    var newThread: NewsThread?
 }
 struct ReaderSnapshot: Codable {
     var servers: [NewsServer]
@@ -66,6 +73,7 @@ struct ReaderSnapshot: Codable {
     var pending: [PendingReply] = []
     var liveGroups: [String: LiveGroupCache]?
     var replyDrafts: [String: ReplyDraft]?
+    var refreshCounts: [String: Int]?
 }
 func downloadSelection(available: [Int], newestDownloaded: Int?, count: Int, latest: Bool) -> [Int] {
     let newer = Array(Set(available)).sorted().filter { $0 > (newestDownloaded ?? 0) }
@@ -127,9 +135,66 @@ struct ReplyPhoto: Identifiable, Codable, Equatable {
 struct ReplyDraft: Codable {
     var id = UUID().uuidString.lowercased()
     var text = ""
+    var subject: String?
     var photos: [ReplyPhoto] = []
     var status: String?
     var fingerprint: String?
     var messageID: String { "<yrnewsex.\(id)@yrnewsex.invalid>" }
     mutating func changed() { id = UUID().uuidString.lowercased(); status = nil; fingerprint = nil }
+}
+
+struct BlockedUser: Identifiable, Codable, Equatable {
+    var username: String
+    var email: String
+    var ip: String
+    var id: String { ip }
+}
+func senderIdentity(_ author: String) -> (name: String, email: String) {
+    if let left = author.lastIndex(of: "<"), let right = author[left...].firstIndex(of: ">") {
+        let name = author[..<left].trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        let email = String(author[author.index(after: left)..<right])
+        return (name.isEmpty ? email : name, email)
+    }
+    return (author, author.contains("@") ? author : "未有提供")
+}
+func canonicalIP(_ text: String) -> String? {
+    let value = text.trimmingCharacters(in: CharacterSet(charactersIn: "[] \t\""))
+    var v4 = in_addr(), v6 = in6_addr()
+    var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+    if inet_pton(AF_INET, value, &v4) == 1 { _ = inet_ntop(AF_INET, &v4, &buffer, socklen_t(buffer.count)); return String(cString: buffer) }
+    if inet_pton(AF_INET6, value, &v6) == 1 { _ = inet_ntop(AF_INET6, &v6, &buffer, socklen_t(buffer.count)); return String(cString: buffer).lowercased() }
+    return nil
+}
+extension NewsThread {
+    func visible(blocked: [BlockedUser]) -> NewsThread? {
+        let ips = Set(blocked.map(\.ip))
+        var hidden = Set(messages.filter { $0.senderIP.map { ips.contains($0) } ?? false }.map(\.id))
+        // References retain ancestry even when an intermediate parent is absent.
+        var changed = true
+        while changed {
+            changed = false
+            for message in messages where !hidden.contains(message.id) {
+                if message.parentID.map({ hidden.contains($0) }) == true || (message.references ?? []).contains(where: { hidden.contains($0) }) {
+                    hidden.insert(message.id); changed = true
+                }
+            }
+        }
+        var result = self; result.messages.removeAll { hidden.contains($0.id) }
+        return result.messages.isEmpty ? nil : result
+    }
+    func matches(_ query: String, scope: String) -> Bool {
+        if query.isEmpty { return true }
+        switch scope {
+        case "Sender": return messages.contains { $0.author.localizedCaseInsensitiveContains(query) }
+        case "Message": return messages.contains { ($0.searchBody ?? $0.body).localizedCaseInsensitiveContains(query) }
+        default: return subject.localizedCaseInsensitiveContains(query) || messages.contains { ($0.subject ?? "").localizedCaseInsensitiveContains(query) }
+        }
+    }
+}
+func adjacentThreadIndex(threadIDs: [String], index: Int, delta: Int) -> Int? {
+    guard threadIDs.indices.contains(index) else { return nil }
+    var order: [String] = []
+    for id in threadIDs where order.last != id { order.append(id) }
+    guard let current = order.firstIndex(of: threadIDs[index]), order.indices.contains(current + delta) else { return nil }
+    return threadIDs.firstIndex(of: order[current + delta])
 }

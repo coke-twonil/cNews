@@ -23,6 +23,17 @@ if CommandLine.arguments.count > 1 {
     let available = try client.available("test.fixture"); check(available == [1,3], "LISTGROUP sparse numbers")
     let headers = try client.headers(group: "test.fixture", numbers: [1,3])
     check(headers.count == 2 && headers[1].parentID == "<root@fixture>", "OVER sparse range and References")
+    let ips = try client.senderIPs(group: "test.fixture", numbers: [1,3])
+    check(ips[1] == "192.0.2.24" && ips[3] == "2001:db8::1", "HDR downloads source IP for unread articles")
+    let oldIPs = try client.senderIPs(group: "test.xhdr", numbers: [1])
+    check(oldIPs[1] == "192.0.2.24", "Legacy XHDR source header fallback")
+    let headIPs = try client.senderIPs(group: "test.head", numbers: [1])
+    check(headIPs[1] == "198.51.100.18", "HEAD fallback when bulk headers unavailable")
     let body = try client.article(group: "test.fixture", number: 1)
     check(body.body.contains(".dot stuffed"), "ARTICLE dot unstuffing")
 }
+
+check(senderIPFromHeaders(["nntp-posting-host": "192.0.2.24"]) == "192.0.2.24", "NNTP posting host is sender IP")
+check(senderIPFromHeaders(["injection-info": "news.invalid; posting-host=\"2001:db8::1\"; logging-data=123"]) == "2001:db8::1", "Injection-Info IPv6 posting host")
+check(senderIPFromHeaders(["x-trace": "news.invalid 1790000000 1234 192.0.2.24 (date)"]) == "192.0.2.24", "X-Trace sender IP excludes timestamp and server name")
+check(senderIPFromHeaders(["path": "192.0.2.1!not-for-mail", "message-id": "<x@192.0.2.2>"]) == nil, "Never infer sender IP from relay headers")

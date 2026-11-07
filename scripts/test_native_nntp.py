@@ -34,11 +34,22 @@ class Handler(socketserver.StreamRequestHandler):
             elif line.startswith('LISTGROUP '):
                 response = '211 2 1 3 test.fixture\r\n1\r\n3\r\n.\r\n'
             elif line.startswith('GROUP '):
+                self.group = line.split()[1]
                 response = '211 2 1 3 test.fixture\r\n'
             elif line == 'OVER 1-1':
                 response = '224 headers\r\n1\tRoot\tAuthor\tdate\t<root@fixture>\t\t100\t2\r\n.\r\n'
             elif line == 'OVER 3-3':
                 response = '224 headers\r\n3\tRe: Root\tAuthor\tdate\t<reply@fixture>\t<root@fixture>\t100\t2\r\n.\r\n'
+            elif line.startswith('HDR ') or line.startswith('XHDR '):
+                field = line.split()[1]
+                if self.group == 'test.head' or (self.group == 'test.xhdr' and line.startswith('HDR ')):
+                    response = '500 unsupported\r\n'
+                elif field == 'nntp-posting-host':
+                    response = '225 headers\r\n1 192.0.2.24\r\n3 2001:db8::1\r\n.\r\n'
+                else:
+                    response = '225 headers\r\n.\r\n'
+            elif line.startswith('HEAD '):
+                response = '221 headers\r\nNNTP-Posting-Host: 198.51.100.18\r\n.\r\n'
             elif line == 'ARTICLE 1':
                 response = '220 article\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello\r\n..dot stuffed\r\n.\r\n'
             else:
