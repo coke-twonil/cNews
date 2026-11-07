@@ -311,13 +311,22 @@ func senderIPFromHeaders(_ fields: [String: String]) -> String? {
     for key in ["nntp-posting-host", "injection-info", "x-originating-ip", "x-trace"] {
         guard var value = fields[key] else { continue }
         if key == "injection-info" {
-            guard let regex = try? NSRegularExpression(pattern: #"posting-host="?([^"; ]+)"#, options: .caseInsensitive),
-                  let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)), let range = Range(match.range(at: 1), in: value) else { continue }
+            guard let regex = try? NSRegularExpression(pattern: #"(?:^|;)\s*posting-host\s*=\s*(?:"([^"]+)"|([^;\s]+))"#, options: .caseInsensitive),
+                  let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)), let range = Range(match.range(at: match.range(at: 1).location == NSNotFound ? 2 : 1), in: value) else { continue }
             value = String(value[range])
         }
         if let ip = canonicalIP(value) { return ip }
         for token in value.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "();,\""))) {
             if let ip = canonicalIP(token) { return ip }
+            // INN may publish posting-host="reverse.hostname:address".
+            // Split once, preserving IPv6 colons; never resolve the hostname.
+            if let colon = token.firstIndex(of: ":") {
+                let host = String(token[..<colon])
+                let address = String(token[token.index(after: colon)...])
+                if host.range(of: #"\A[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\z"#, options: .regularExpression) != nil,
+                   host.rangeOfCharacter(from: .letters) != nil,
+                   let ip = canonicalIP(address) { return ip }
+            }
         }
     }
     return nil

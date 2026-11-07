@@ -19,6 +19,7 @@ final class ReaderStore: ObservableObject {
             snapshot.servers.append(NewsServer(id: "live-public", title: "news.twonil.hk · Live", host: "news.twonil.hk", name: "", email: "", groups: ["general.chat", "test.test"]))
         }
         if snapshot.servers.contains(where: { $0.id == "demo" }) && !snapshot.threads.contains(where: { $0.id == "native-scroll-demo" }) { snapshot.threads.append(scrollDemoThread()) }
+        if snapshot.migrateSenderIPParser() { save() }
     }
     func save() {
         do {
@@ -184,6 +185,13 @@ final class ReaderStore: ObservableObject {
                 snapshot = updated; rebuild(server: server, group: group)
             }
         }
+    }
+    func repairBlockedSources(server: NewsServer) async throws {
+        guard !(snapshot.servers.first { $0.id == server.id }?.blockedUsers ?? []).isEmpty else { return }
+        while busy { try await Task.sleep(for: .milliseconds(100)) }
+        try Task.checkCancellation()
+        busy = true; defer { busy = false; progress = "" }
+        try await hydrateSourceIPs(server: server)
     }
     func blockUser(_ user: BlockedUser, serverID: String) async throws {
         guard !busy, let server = snapshot.servers.first(where: { $0.id == serverID }) else { throw NewsError.failure("請等目前下載完成再試") }
@@ -570,7 +578,14 @@ struct ThreadScreen: View {
                 }
             }
         }
-        .task { if server.id != "demo" { store.rebuild(server: server, group: group) } }
+        .task {
+            if server.id != "demo" {
+                store.rebuild(server: server, group: group)
+                do { try await store.repairBlockedSources(server: server) }
+                catch is CancellationError { }
+                catch { store.storageError = "未能補讀封鎖所需嘅來源 headers：" + error.localizedDescription }
+            }
+        }
         .task(id: searchScope + "|" + query) {
             guard searching, searchScope == "Message", !query.isEmpty, server.id != "demo" else { return }
             do {

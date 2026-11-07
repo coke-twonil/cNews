@@ -72,3 +72,13 @@ let deletedRestored = try JSONDecoder().decode(ReaderSnapshot.self, from: JSONEn
 check(deletedRestored.deletedServerIDs?.contains("live-public") == true, "Removal marker survives relaunch to prevent default server resurrection")
 deletion.deleteServer("demo")
 check(!deletion.threads.contains { $0.serverID == nil } && deletion.servers.contains { $0.id == otherServer.id }, "Demo deletion removes demo threads and preserves Live servers")
+var legacyIPs = demoSnapshot()
+legacyIPs.threads[0].messages[0].senderIPChecked = true
+legacyIPs.threads[1].messages[0].senderIP = "192.0.2.24"
+legacyIPs.threads[1].messages[0].senderIPChecked = true
+legacyIPs.liveGroups = ["live|test.test": LiveGroupCache(messages: [NewsMessage(id: "negative", author: "A", body: "Keep body", read: true, senderIPChecked: true)])]
+check(legacyIPs.migrateSenderIPParser(), "Old source IP cache migrates")
+check(legacyIPs.threads[0].messages[0].senderIPChecked == nil && legacyIPs.liveGroups?["live|test.test"]?.messages[0].senderIPChecked == nil, "Old negative source lookups are eligible for retry")
+check(legacyIPs.threads[1].messages[0].senderIP == "192.0.2.24" && legacyIPs.threads[1].messages[0].senderIPChecked == true, "Existing valid sender IP remains cached")
+check(legacyIPs.liveGroups?["live|test.test"]?.messages[0].body == "Keep body" && legacyIPs.liveGroups?["live|test.test"]?.messages[0].read == true, "IP migration preserves body and read state")
+check(!legacyIPs.migrateSenderIPParser(), "IP cache migration runs only once")

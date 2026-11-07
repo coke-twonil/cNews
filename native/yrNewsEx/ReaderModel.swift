@@ -75,6 +75,7 @@ struct ReaderSnapshot: Codable {
     var replyDrafts: [String: ReplyDraft]?
     var refreshCounts: [String: Int]?
     var deletedServerIDs: [String]?
+    var senderIPParserVersion: Int?
 }
 func downloadSelection(available: [Int], newestDownloaded: Int?, count: Int, latest: Bool) -> [Int] {
     let newer = Array(Set(available)).sorted().filter { $0 > (newestDownloaded ?? 0) }
@@ -215,5 +216,25 @@ extension ReaderSnapshot {
         var removed = deletedServerIDs ?? []
         if !removed.contains(id) { removed.append(id) }
         deletedServerIDs = removed
+    }
+}
+
+extension ReaderSnapshot {
+    /// Invalidate only old negative IP lookups; retain bodies, read flags and blocks.
+    mutating func migrateSenderIPParser() -> Bool {
+        guard (senderIPParserVersion ?? 1) < 2 else { return false }
+        for t in threads.indices {
+            for m in threads[t].messages.indices where threads[t].messages[m].senderIP == nil {
+                threads[t].messages[m].senderIPChecked = nil
+            }
+        }
+        for key in Array((liveGroups ?? [:]).keys) {
+            if var cache = liveGroups?[key] {
+                for i in cache.messages.indices where cache.messages[i].senderIP == nil { cache.messages[i].senderIPChecked = nil }
+                liveGroups?[key] = cache
+            }
+        }
+        senderIPParserVersion = 2
+        return true
     }
 }

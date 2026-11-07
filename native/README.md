@@ -120,3 +120,12 @@ python3 scripts/test_native_nntp.py /tmp/yrnewsex-posting-tests
 Server Settings 底部新增紅色 Delete Server。確認視窗會顯示 server 名稱，列明本機資料移除及無法還原；Cancel 保留全部資料。確認後移除該 server、訂閱、文章快取（包括收藏）、草稿、待刷新 Demo 回覆、Refresh 數字及 Block 名單，不向 NNTP server 發送刪除文章指令。其他 servers 資料保留；載入中暫停用刪除。保存移除標記，避免預設 Live server 或 Demo 測試文章重開 app 後自動出現。
 
 新增 6 項刪除資料隔離及持久化測試，模型測試共 31 項通過。
+
+
+## INN sender IP 格式修正
+
+支援 `Injection-Info` 內 `posting-host="hostname:IPv4"`，以及 hostname 後接完整 IPv6／方括號 IPv6；只解析 header 內已有嘅數字 IP，唔做 DNS 查詢，唔將 logging-data 或 relay 位址當來源。修正前部分 news.twonil.hk 文章其實有 IP 但被顯示成未有提供。
+
+首次更新會保留有效 IP、正文、已讀及 Block 名單，只重設舊版本冇抽到 IP 嘅查詢標記，令長按 Block 可以再讀來源 header。已有 Block 名單嘅 server，進 group 會補讀已快取文章嘅未檢查來源 headers，唔下載新 messages，唔改 Refresh 數字。新增 7 項 header 解析測試及 5 項快取遷移測試；模型 36 項、NNTP 26 項通過。
+
+修正後真 server 只讀抽查：general.chat 最新 20 篇、general.soccer_n_chat 最新 20 篇、test.test 全部 7 篇，app parser 均讀到來源 IP。模擬器沿用舊快取，長按 test.test「試野」已成功顯示 IP 並啟用 Block；取消確認，未封鎖該用戶，無發文。抽查結果不代表所有歷史文章。
