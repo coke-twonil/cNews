@@ -74,6 +74,7 @@ struct ReaderSnapshot: Codable {
     var liveGroups: [String: LiveGroupCache]?
     var replyDrafts: [String: ReplyDraft]?
     var refreshCounts: [String: Int]?
+    var deletedServerIDs: [String]?
 }
 func downloadSelection(available: [Int], newestDownloaded: Int?, count: Int, latest: Bool) -> [Int] {
     let newer = Array(Set(available)).sorted().filter { $0 > (newestDownloaded ?? 0) }
@@ -197,4 +198,22 @@ func adjacentThreadIndex(threadIDs: [String], index: Int, delta: Int) -> Int? {
     for id in threadIDs where order.last != id { order.append(id) }
     guard let current = order.firstIndex(of: threadIDs[index]), order.indices.contains(current + delta) else { return nil }
     return threadIDs.firstIndex(of: order[current + delta])
+}
+
+extension ReaderSnapshot {
+    mutating func deleteServer(_ id: String) {
+        guard servers.contains(where: { $0.id == id }) else { return }
+        let threadIDs = Set(threads.filter { $0.serverID == id || (id == "demo" && $0.serverID == nil) }.map(\.id))
+        servers.removeAll { $0.id == id }
+        threads.removeAll { threadIDs.contains($0.id) }
+        pending.removeAll { threadIDs.contains($0.threadID) || $0.newThread?.serverID == id || (id == "demo" && $0.newThread != nil && $0.newThread?.serverID == nil) }
+        let prefix = id + "|"
+        liveGroups = liveGroups?.filter { !$0.key.hasPrefix(prefix) }
+        replyDrafts = replyDrafts?.filter { !$0.key.hasPrefix(prefix) }
+        refreshCounts = refreshCounts?.filter { !$0.key.hasPrefix(prefix) }
+        // Preserve user removal when migrating older installations on next launch.
+        var removed = deletedServerIDs ?? []
+        if !removed.contains(id) { removed.append(id) }
+        deletedServerIDs = removed
+    }
 }

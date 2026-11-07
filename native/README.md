@@ -113,3 +113,10 @@ python3 scripts/test_native_nntp.py /tmp/yrnewsex-posting-tests
 
 
 本輪驗證：70 項原生測試通過（25 模型、19 NNTP／解碼、13 發文、13 embed）。模擬器實測左右兩方向重複 toggle、Sender／Message 搜尋、Demo 新主題發送後手動 Refresh 先出現、閱讀後 Refresh 數字不變、文章六個按鈕及收藏、長按 Block、Server Settings 三項身份與 Unblock 恢復。Block 測試只修改模擬器本機設定，完成後已解除；無新增公開測試文章。
+
+
+## Delete Server
+
+Server Settings 底部新增紅色 Delete Server。確認視窗會顯示 server 名稱，列明本機資料移除及無法還原；Cancel 保留全部資料。確認後移除該 server、訂閱、文章快取（包括收藏）、草稿、待刷新 Demo 回覆、Refresh 數字及 Block 名單，不向 NNTP server 發送刪除文章指令。其他 servers 資料保留；載入中暫停用刪除。保存移除標記，避免預設 Live server 或 Demo 測試文章重開 app 後自動出現。
+
+新增 6 項刪除資料隔離及持久化測試，模型測試共 31 項通過。

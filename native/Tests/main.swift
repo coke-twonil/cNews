@@ -52,3 +52,23 @@ check(migrated.refreshCounts == nil, "Old cache migrates without deleting data")
 
 var searchOnly = NewsThread(id: "search", subject: "Title", messages: [NewsMessage(id: "search1", author: "A", body: "", bodyLoaded: false, searchBody: "Cached search text")])
 check(searchOnly.matches("cached", scope: "Message") && searchOnly.messages[0].bodyLoaded == false, "Text search cache does not pretend images are fully loaded")
+var deletion = demoSnapshot()
+let live = NewsServer(id: "live-public", title: "Live", host: "example.invalid", name: "A", email: "a@example.invalid", groups: ["test.test"], blockedUsers: [blocked])
+let otherServer = NewsServer(id: "live-public-other", title: "Keep", host: "example.invalid", name: "B", email: "b@example.invalid", groups: ["test.test"])
+deletion.servers += [live, otherServer]
+let deletedMessage = NewsMessage(id: "delete", author: "A", body: "", favourite: true)
+deletion.threads += [NewsThread(id: "delete-thread", subject: "Delete", messages: [deletedMessage], serverID: live.id, groupName: "test.test"), NewsThread(id: "keep-thread", subject: "Keep", messages: [deletedMessage], serverID: otherServer.id, groupName: "test.test")]
+let deleteKey = groupKey(live.id, "test.test"), keepKey = groupKey(otherServer.id, "test.test")
+deletion.liveGroups = [deleteKey: LiveGroupCache(messages: [deletedMessage]), keepKey: LiveGroupCache(messages: [deletedMessage])]
+deletion.replyDrafts = [deleteKey + "|delete": ReplyDraft(text: "delete"), keepKey + "|keep": ReplyDraft(text: "keep")]
+deletion.refreshCounts = [deleteKey: 5, keepKey: 7]
+deletion.pending = [PendingReply(threadID: "delete-thread", message: deletedMessage), PendingReply(threadID: "keep-thread", message: deletedMessage)]
+deletion.deleteServer(live.id)
+check(!deletion.servers.contains { $0.id == live.id } && !deletion.threads.contains { $0.id == "delete-thread" }, "Delete removes only selected server and its articles")
+check(deletion.liveGroups?[deleteKey] == nil && deletion.replyDrafts?[deleteKey + "|delete"] == nil && deletion.refreshCounts?[deleteKey] == nil, "Delete clears selected server caches, drafts and refresh count")
+check(deletion.liveGroups?[keepKey]?.messages.count == 1 && deletion.replyDrafts?[keepKey + "|keep"]?.text == "keep" && deletion.refreshCounts?[keepKey] == 7, "Similar server ID retains its data")
+check(deletion.pending.map(\.threadID) == ["keep-thread"], "Delete removes pending replies belonging to removed threads")
+let deletedRestored = try JSONDecoder().decode(ReaderSnapshot.self, from: JSONEncoder().encode(deletion))
+check(deletedRestored.deletedServerIDs?.contains("live-public") == true, "Removal marker survives relaunch to prevent default server resurrection")
+deletion.deleteServer("demo")
+check(!deletion.threads.contains { $0.serverID == nil } && deletion.servers.contains { $0.id == otherServer.id }, "Demo deletion removes demo threads and preserves Live servers")

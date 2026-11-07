@@ -15,10 +15,10 @@ final class ReaderStore: ObservableObject {
             do { snapshot = try JSONDecoder().decode(ReaderSnapshot.self, from: Data(contentsOf: file)) }
             catch { snapshot = demoSnapshot(); storageError = "未能讀取本機資料：\(error.localizedDescription)" }
         } else { snapshot = demoSnapshot() }
-        if !snapshot.servers.contains(where: { $0.id == "live-public" }) {
+        if !snapshot.servers.contains(where: { $0.id == "live-public" }) && !(snapshot.deletedServerIDs ?? []).contains("live-public") {
             snapshot.servers.append(NewsServer(id: "live-public", title: "news.twonil.hk · Live", host: "news.twonil.hk", name: "", email: "", groups: ["general.chat", "test.test"]))
         }
-        if !snapshot.threads.contains(where: { $0.id == "native-scroll-demo" }) { snapshot.threads.append(scrollDemoThread()) }
+        if snapshot.servers.contains(where: { $0.id == "demo" }) && !snapshot.threads.contains(where: { $0.id == "native-scroll-demo" }) { snapshot.threads.append(scrollDemoThread()) }
     }
     func save() {
         do {
@@ -194,6 +194,12 @@ final class ReaderStore: ObservableObject {
         var users = snapshot.servers[i].blockedUsers ?? []
         users.removeAll { $0.ip == user.ip }; users.append(user)
         snapshot.servers[i].blockedUsers = users
+    }
+    func deleteServer(_ id: String) {
+        guard !busy, loadingArticles.isEmpty else { storageError = "請等目前載入完成再刪除 server"; return }
+        var updated = snapshot
+        updated.deleteServer(id)
+        snapshot = updated
     }
     func unblock(_ ip: String, serverID: String) {
         if let i = snapshot.servers.firstIndex(where: { $0.id == serverID }) { snapshot.servers[i].blockedUsers?.removeAll { $0.ip == ip } }
@@ -392,6 +398,7 @@ struct ServerEditor: View {
     @EnvironmentObject var store: ReaderStore
     @Environment(\.dismiss) var dismiss
     @State var server: NewsServer
+    @State private var confirmingDelete = false
     var isNew: Bool
     var body: some View {
         NavigationStack {
@@ -422,7 +429,17 @@ struct ServerEditor: View {
                 Section {
                     NavigationLink("Subscribe Group") { SubscriptionScreen(selection: $server.groups, server: server) }
                 } footer: { Text("Live 會直接連線載入群組及文章；119 普通 NNTP，563 TLS。暫未支援帳密登入；支援發文及最多三張相片。Name／Email 會隨發文公開顯示。") }
+                if !isNew {
+                    Section {
+                        Button("Delete Server", role: .destructive) { confirmingDelete = true }
+                            .disabled(store.busy || !store.loadingArticles.isEmpty)
+                    } footer: { Text("移除此 server、訂閱、本機文章、草稿、收藏及封鎖清單。唔會刪除 server 上嘅文章，亦唔影響其他 servers。") }
+                }
             }
+            .alert("Delete Server?", isPresented: $confirmingDelete) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete Server", role: .destructive) { store.deleteServer(server.id); dismiss() }
+            } message: { Text("確定刪除「\(server.title.isEmpty ? server.host : server.title)」及佢嘅所有本機資料？未發送草稿亦會移除。此操作無法還原。") }
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 ReaderHeader(title: isNew ? "Add Server" : "Server") {
