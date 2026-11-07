@@ -26,6 +26,7 @@ Apple 文件：[開發者模式](https://developer.apple.com/documentation/xcode
 - **搜尋**：撳搜尋欄後試 Subject／Sender／Message。Message 會連線載入本機文章未快取內文；唔係搜尋整個 server，也唔會下載新文。
 - **Block**：長按列表一篇 message，或點內文 header 右側 Block icon，確認 username／email／sender IP。Block 後同 server 其他 groups 同 IP 及其子分支都隱藏；到 Server Settings → Blocked Users 核對身份及 Unblock，確認恢復。冇 sender IP 嘅文章唔可以 Block；第一次要等舊快取來源 headers 讀取完成。
 - **刪除 server**：Server Settings 底部 Delete Server，先核對確認視窗列出嘅 server。Cancel 應保留資料；確認會移除該 server 及所有本機資料，無法還原，其他 servers 不受影響，亦不刪 NNTP server 上文章。
+- **加圖流程／頂部縮圖**：camera → Take New／Choose Existing／Cancel → 相簿 → 揀相 → 完成；附件縮圖只喺最頂 bar 顯示，可逐張移除，最多三張。首次 Choose Existing 按 iOS 提示選相片權限。Send 成功直接關閉編輯畫面，冇 Sent／OK 提示；失敗仍保留草稿。
 - **草稿**：用未發草稿測試文字／附件重開後保存，失敗唔丟內容；「用新識別碼再試」唔會自動發文。
 
 ## 簽名期限

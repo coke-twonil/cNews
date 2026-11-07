@@ -1,5 +1,5 @@
 import SwiftUI
-import PhotosUI
+import Photos
 
 @MainActor
 final class ReaderStore: ObservableObject {
@@ -336,6 +336,7 @@ struct ReaderAction: Identifiable {
 }
 /// Flat action sheet keeps the yrNews layout on newer iOS versions too.
 struct ReaderActionSheet: View {
+    var title: String? = nil
     var items: [ReaderAction]
     var cancel: () -> Void
     var body: some View {
@@ -343,6 +344,7 @@ struct ReaderActionSheet: View {
             Color.black.opacity(0.5).ignoresSafeArea().onTapGesture(perform: cancel)
             VStack(spacing: 8) {
                 VStack(spacing: 0) {
+                    if let title { Text(title).font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 36); Divider() }
                     ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                         if index > 0 { Divider().overlay(Color(white: 0.3)) }
                         Button { cancel(); item.action() } label: {
@@ -833,13 +835,12 @@ struct ReplyScreen: View {
     var isNewPost = false
     var onSent: () -> Void
     @State private var draft = ReplyDraft()
-    @State private var showingSent = false
     @State private var loadingHistory = true
     @State private var historyReady = false
     @State private var sending = false
     @State private var errorText: String?
     @State private var picker = false
-    @State private var selection: [PhotosPickerItem] = []
+    @State private var photoActions = false
     @State private var importing = false
     @State private var photoSlots = 3
     @State private var photoTask: Task<Void, Never>?
@@ -859,18 +860,6 @@ struct ReplyScreen: View {
                 if loadingHistory { ProgressView("Loading reply history…").padding() }
                 TextEditor(text: Binding(get: { draft.text }, set: { draft.text = $0; edited() }))
                     .scrollContentBackground(.hidden).scrollIndicators(.hidden).padding(8).disabled(loadingHistory || !historyReady || sending)
-                if !draft.photos.isEmpty {
-                    ScrollView(.horizontal) {
-                        HStack {
-                            ForEach(draft.photos) { photo in
-                                ZStack(alignment: .topTrailing) {
-                                    ReplyPhotoThumbnail(photo: photo)
-                                    Button { draft.photos.removeAll { $0.id == photo.id }; edited() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.white, .black) }.accessibilityLabel("Remove photo")
-                                }
-                            }
-                        }
-                    }.frame(height: 80).padding(.horizontal, 12).disabled(sending)
-                }
                 if importing {
                     HStack {
                         ProgressView("Preparing photo…")
@@ -888,35 +877,50 @@ struct ReplyScreen: View {
                 }
             }.background(.black).toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    ReaderHeader(title: isNewPost ? "New Post" : "Reply") {
+                    HStack(spacing: 6) {
                         Button("Cancel") { dismiss() }.frame(minHeight: 44).disabled(sending)
-                    } right: {
-                        HStack(spacing: 8) {
-                            Menu {
-                                Button("Choose Existing") { selection = []; photoSlots = max(1, 3-draft.photos.count); picker = true }
-                                Button("Take a New Photo") {
-                                    if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true }
-                                    else { errorText = "模擬器冇相機；真 iPhone 可以影相。" }
+                        Group {
+                            if draft.photos.isEmpty { Text(isNewPost ? "New Post" : "Reply").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white) }
+                            else {
+                                HStack(spacing: 0) {
+                                    ForEach(draft.photos) { photo in
+                                        ZStack(alignment: .topTrailing) {
+                                            ReplyPhotoThumbnail(photo: photo).clipShape(RoundedRectangle(cornerRadius: 4)).padding(4)
+                                            Button { draft.photos.removeAll { $0.id == photo.id }; edited() } label: {
+                                                Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(.white, .black).frame(width: 22, height: 22)
+                                            }.accessibilityLabel("Remove photo").disabled(sending)
+                                        }.frame(width: 44, height: 44)
+                                    }
                                 }
-                            } label: { Image(systemName: "camera").font(.system(size: 21)).frame(width: 44, height: 44) }
+                            }
+                        }.frame(maxWidth: .infinity)
+                        HStack(spacing: 8) {
+                            Button { photoActions = true } label: { Image(systemName: "camera").font(.system(size: 21)).frame(width: 44, height: 44) }
                             .accessibilityLabel("Attach Photo")
                             .disabled(draft.photos.count >= 3 || sending || importing || loadingHistory || !historyReady)
                             Button(sending ? "Sending…" : "Send") { Task { await send() } }.frame(minHeight: 44)
                                 .disabled(sending || loadingHistory || !historyReady || importing || !identityReady || (isNewPost && (draft.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || (replyTextSections(draft.text).own.isEmpty && draft.photos.isEmpty))
                         }
-                    }
+                    }.frame(height: 52).padding(.horizontal, 12).background(.black).buttonStyle(.plain).foregroundStyle(Color(red: 0.04, green: 0.52, blue: 1))
                 }
                 .task { await loadHistory() }
-                .photosPicker(isPresented: $picker, selection: $selection, maxSelectionCount: photoSlots, matching: .images, preferredItemEncoding: .current)
-                .onChange(of: selection) { _, items in if !picker { importPhotos(items) } }
-                .onChange(of: picker) { _, shown in if !shown { importPhotos(selection) } }
+                .overlay {
+                    if photoActions {
+                        ReaderActionSheet(title: "Attach Photo", items: [
+                            ReaderAction(title: "Take New", action: {
+                                if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true }
+                                else { errorText = "模擬器冇相機；真 iPhone 可以影相。" }
+                            }),
+                            ReaderAction(title: "Choose Existing", action: { photoSlots = max(1, 3-draft.photos.count); picker = true })
+                        ], cancel: { photoActions = false })
+                    }
+                }
+                .sheet(isPresented: $picker) { AlbumPhotoPicker(limit: photoSlots) { assets in picker = false; importPhotos(assets) } }
                 .onDisappear { photoTask?.cancel() }
                 .sheet(isPresented: $camera) { CameraCapture { image in importCameraPhoto(image) } }
                 .sheet(isPresented: $settings) { if let server { ServerEditor(server: server, isNew: false) } }
                 .interactiveDismissDisabled(sending)
-                .alert(isLive ? "Sent" : "Saved locally", isPresented: $showingSent) {
-                    Button("OK") { dismiss(); onSent() }
-                } message: { Text("已發送。返回列表撳 Refresh 先會以未讀顯示。") }
+
         }
     }
     func loadHistory() async {
@@ -932,15 +936,15 @@ struct ReplyScreen: View {
         guard draft.photos.count < 3 else { throw NewsError.failure("最多三張相") }
         draft.photos.append(photo); edited()
     }
-    func importPhotos(_ items: [PhotosPickerItem]) {
+    func importPhotos(_ items: [PHAsset]) {
         guard !items.isEmpty, !importing else { return }
         importing = true; errorText = nil
         photoTask = Task {
-            defer { if !Task.isCancelled { importing = false; selection = [] } }
+            defer { if !Task.isCancelled { importing = false } }
             for item in items.prefix(max(0, 3-draft.photos.count)) {
                 do {
                     try Task.checkCancellation()
-                    guard let data = try await item.loadTransferable(type: Data.self) else { throw PhotoPreparation.PhotoError.invalid }
+                    let data = try await PhotoAssetDataRequest().load(item)
                     try Task.checkCancellation()
                     let photo = try await Task.detached(priority: .userInitiated) { try PhotoPreparation.prepare(data) }.value
                     try Task.checkCancellation()
@@ -982,7 +986,7 @@ struct ReplyScreen: View {
                 let newThread = NewsThread(id: draft.messageID, subject: draft.subject ?? "", messages: [reply], groupName: thread.groupName)
                 store.snapshot.pending.append(PendingReply(threadID: newThread.id, message: reply, newThread: newThread))
             } else { store.snapshot.pending.append(PendingReply(threadID: thread.id, message: reply)) }
-            store.snapshot.replyDrafts?[draftKey] = nil; showingSent = true; return
+            store.snapshot.replyDrafts?[draftKey] = nil; dismiss(); onSent(); return
         }
         let refs = isNewPost ? [] : (Array(NSOrderedSet(array: (message.references ?? []) + [message.id])) as? [String] ?? [message.id])
         let subject = isNewPost ? (draft.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : (thread.subject.lowercased().hasPrefix("re:") ? thread.subject : "Re: " + thread.subject)
@@ -994,7 +998,7 @@ struct ReplyScreen: View {
             _ = try buildReply(draft: attempt, server: server, group: thread.groupName ?? "", subject: subject, refs: refs)
             draft.status = "uncertain"; saveDraft()
             try await store.submitReply(draft: attempt, server: server, group: thread.groupName ?? "", subject: subject, refs: refs)
-            store.snapshot.replyDrafts?[draftKey] = nil; showingSent = true
+            store.snapshot.replyDrafts?[draftKey] = nil; dismiss(); onSent()
         } catch {
             let description = error.localizedDescription
             if description.localizedCaseInsensitiveContains("duplicate") { draft.status = "duplicate" }
@@ -1010,7 +1014,7 @@ struct ReplyPhotoThumbnail: View {
         Group {
             if let image { Image(uiImage: image).resizable().scaledToFit() }
             else { ProgressView() }
-        }.frame(width: 80, height: 70)
+        }.frame(width: 36, height: 36)
         .task(id: photo.id) {
             let bytes = photo.data
             let data = await Task.detached(priority: .utility) { PhotoPreparation.thumbnail(bytes) }.value

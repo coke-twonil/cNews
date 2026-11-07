@@ -147,3 +147,14 @@ xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/PhotoPreparation.
 xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/SnapshotFileWriter.swift native/PersistenceTests/main.swift -o /tmp/yrnewsex-persistence-tests
 /tmp/yrnewsex-persistence-tests
 ```
+
+
+## 相簿操作及頂部附件縮圖
+
+依操作參考改為 camera → 底部 Attach Photo 選單（Take New、Choose Existing、Cancel）→ 相簿列表 → 四欄相片格仔 → 揀相 → 完成。依剩餘名額限制選擇，跨相簿保留選擇；讀取選中照片支援 iCloud 及取消，處理／儲存維持背景工作。附件最多三張，選完縮圖放在編輯畫面最頂工具列中間，每張有移除鈕，唔放在內文下方；camera 保留在 Send 左邊。
+
+相簿列表用 PhotoKit，首次 Choose Existing 由 iOS 要求相片權限。有限存取只顯示已獲允許嘅相片；拒絕存取時顯示說明及 Open Settings，不存取或修改未獲允許嘅相庫內容。模擬器權限只用於開發測試，真機由使用者親自選擇。相簿／相片 metadata 不會因開啟選擇器上載；只有 Send 時選中的附件隨文章發送。參考 Apple [PhotoKit 權限及有限存取](https://developer.apple.com/documentation/photokit/delivering-an-enhanced-privacy-experience-in-your-photos-app)。
+
+發送成功移除 Sent／Saved locally 提示及 OK 步驟，直接關閉新主題／回覆畫面。回覆保留既有返回原 thread 列表行為，成功後唔自動插入文章；手動 Refresh 先加入。失敗及未確認結果仍保留草稿、附件同錯誤，唔自動關閉。
+
+驗證：模擬器實測底部選單、相簿列表、四欄相片格仔及完成後三張附件顯示在頂部；只剩一個名額時不能多選第二張。Demo 相片回覆按 Send 後直接返回原列表，無成功提示及無新回覆即時插入；無公開發文。圖片、持久化及 MIME 23 項回歸測試通過。
