@@ -427,7 +427,6 @@ struct GroupsScreen: View {
                             Divider().overlay(Color(white: 0.1))
                         }
                     }
-                    Text("Demo 為本機示例；Live 可直接連線閱讀 NNTP").font(.footnote).foregroundStyle(.secondary).padding(20)
                 }
             }
             .coordinateSpace(name: "group-order").onPreferenceChange(GroupRowFrames.self) { rowFrames = $0 }
