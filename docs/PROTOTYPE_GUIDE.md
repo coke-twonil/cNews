@@ -1,6 +1,6 @@
-# yrNewsEx — 操作原型 01
+# cNews — 操作原型 01
 
-目標：操作順暢，look and feel 同原版 reader 一樣。先分析使用者錄屏，再做可操作原型，之後接原生 iPhone／NNTP。
+目標：提供操作順暢嘅 iOS newsgroup reader。先分析使用者錄屏，再做可操作原型，之後接原生 iPhone／NNTP。
 
 ## 試用
 
@@ -48,7 +48,7 @@ python3 -B -m unittest discover -s tests -p 'test_*.py'
 
 ## 現階段界線
 
-呢個係操作同視覺驗證原型，未係可安裝嘅 iOS app。已接通 NNTP 閱讀、POST 同文字編碼轉換；Demo 設定頁嘅 Big5 選項仍只儲存設定，Live 依文章 charset 解碼。未建立 GitHub repo，未選定 license，未發佈。現機已安裝 Xcode 27.2／iOS 27.2 Simulator；`native/yrNewsEx.xcodeproj` 已支援原生 NNTP 真實閱讀、目錄及批次下載（發文仍未移植），詳見 [原生進度](native/README.md)。
+呢個係操作同視覺驗證原型，未係可安裝嘅 iOS app。已接通 NNTP 閱讀、POST 同文字編碼轉換；Demo 設定頁嘅 Big5 選項仍只儲存設定，Live 依文章 charset 解碼。未建立 GitHub repo，未選定 license，未發佈。現機已安裝 Xcode 27.2／iOS 27.2 Simulator；`native/cNews.xcodeproj` 已支援原生 NNTP 真實閱讀、目錄及批次下載（發文仍未移植），詳見 [原生進度](native/README.md)。
 
 下一階段係按原型回饋校準視覺同手勢，再用 SwiftUI 建立原生專案，延續已接通嘅 NNTP 閱讀／發文／回覆，完善圖片檢視同真機體驗。唔需要將密碼交畀開發者。
 

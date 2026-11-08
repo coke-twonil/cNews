@@ -8,10 +8,16 @@ import {readMigratedStorage} from './storage.mjs';
 import {renderMediaLinks,mountEmbeds} from './embeds.mjs?v=20261105-fbshare';
 import {groups,sampleImage,seed,unread,markThreadRead,filteredThreads,replyDraft,validateServer,upgradeHierarchy,messageTree,readingSequence,adjacentMessage,swipeDirection,threadSwipeAction,quotedLines,commitDraft,mergeRepository,MAX_ATTACHMENTS,selectAttachments,restoreAttachmentCache} from './model.mjs';
 const app=document.getElementById('app'),sheet=document.getElementById('sheet'),toastEl=document.getElementById('toast');
-const key='yrnewsex-prototype-v1',postContextKey='yrnewsex-post-context-v1';
-// Compatibility with saved data from before the yrNewsEx rename.
-const legacyKey='yrnews-prototype-v1',legacyPostContextKey='yrnews-post-context-v1';
-const storedData=()=>readMigratedStorage(localStorage,key,legacyKey);
+const key='cnews-prototype-v1',postContextKey='cnews-post-context-v1';
+// Compatibility with saved data from before the cNews rename.
+const legacyKey=['yrnewsex-prototype-v1','yrnews-prototype-v1'],legacyPostContextKey=['yrnewsex-post-context-v1','yrnews-post-context-v1'];
+const storedData=()=>{
+ const raw=readMigratedStorage(localStorage,key,legacyKey);
+ if(!raw)return raw;
+ const data=JSON.parse(raw);
+ if(data.draft?.postId&&!data.draft.postBrand)data.draft.postBrand='yrnewsex';
+ return JSON.stringify(data);
+};
 let state;
 try{state=JSON.parse(storedData());if(state?.version!==1||!Array.isArray(state.servers)||!Array.isArray(state.threads))state=seed()}catch{state=seed()}
 upgradeHierarchy(state);
@@ -30,7 +36,7 @@ function currentServer(){return state.servers.find(s=>s.id===serverId)}
 function currentThread(){return state.threads.find(t=>t.id===threadId)}
 function list(){return filteredThreads(state,serverId,group,{query,unreadOnly,favouritesOnly,latest})}
 function nav(left,center='',right=''){return `<header class="nav">${left||'<span class="spacer"></span>'}<strong>${esc(center)}</strong><div class="right">${right}</div></header>`}
-function clearPostContext(){selectedMessageId=null;try{sessionStorage.removeItem(postContextKey);sessionStorage.removeItem(legacyPostContextKey)}catch{}}
+function clearPostContext(){selectedMessageId=null;try{sessionStorage.removeItem(postContextKey);legacyPostContextKey.forEach(k=>sessionStorage.removeItem(k))}catch{}}
 function showGroups(){cancelLiveRefresh();articleRequest++;clearPostContext();view='groups';editing=false;render()}
 function openGroup(name,sid=serverId){cancelLiveRefresh();articleRequest++;clearPostContext();serverId=sid;group=name;view='list';query='';listScroll=0;expanded.clear();unreadOnly=false;favouritesOnly=false;render();if(currentServer()?.mode==='nntp')refresh()}
 function readingThreads(){const byId=new Map(state.threads.map(t=>[t.id,t]));return readingThreadIds.map(id=>byId.get(id)).filter(Boolean)}
@@ -65,7 +71,7 @@ async function openArticle(id,index=0,direction=1){
  app.querySelector('.screen').classList.toggle('reading-back',direction<0);
  if(currentServer()?.mode==='nntp')toast('文章已載入 · Live');
 }
-function groupScreen(){return nav(btn(editing?'完成':'編輯','edit'),'',btn('Add Server','add-server',icon('plus')))+`<h1 class="large-title">Groups</h1><div class="scroll">${state.servers.map(s=>`<section>${btn('設定 '+s.host,'settings',`${esc(s.host)}${s.mode==='nntp'?'':' · Demo'}${chevron}`,`class="server-row" data-server="${esc(s.id)}"`)}${s.subscriptions.map(g=>`<div class="group-row">${btn(g,'group',esc(g),`style="color:white;text-align:left;flex:1;min-height:48px;padding:0;overflow-wrap:anywhere" data-server="${esc(s.id)}" data-group="${esc(g)}"`)}${editing?btn('取消訂閱 '+g,'unsubscribe','⊖',`class="danger" data-server="${esc(s.id)}" data-group="${esc(g)}"`):chevron}</div>`).join('')}</section>`).join('')||'<p class="empty">No Servers<br>Tap + to add a server.</p>'}</div><footer class="toolbar"><span style="width:44px"></span><span class="info brand">yrNewsEx</span>${btn('About prototype','about',icon('info'))}</footer>`}
+function groupScreen(){return nav(btn(editing?'完成':'編輯','edit'),'',btn('Add Server','add-server',icon('plus')))+`<h1 class="large-title">Groups</h1><div class="scroll">${state.servers.map(s=>`<section>${btn('設定 '+s.host,'settings',`${esc(s.host)}${s.mode==='nntp'?'':' · Demo'}${chevron}`,`class="server-row" data-server="${esc(s.id)}"`)}${s.subscriptions.map(g=>`<div class="group-row">${btn(g,'group',esc(g),`style="color:white;text-align:left;flex:1;min-height:48px;padding:0;overflow-wrap:anywhere" data-server="${esc(s.id)}" data-group="${esc(g)}"`)}${editing?btn('取消訂閱 '+g,'unsubscribe','⊖',`class="danger" data-server="${esc(s.id)}" data-group="${esc(g)}"`):chevron}</div>`).join('')}</section>`).join('')||'<p class="empty">No Servers<br>Tap + to add a server.</p>'}</div><footer class="toolbar"><span style="width:44px"></span><span class="info brand">cNews</span>${btn('About prototype','about',icon('info'))}</footer>`}
 function replyRows(thread){
  const byId=new Map(thread.messages.map(m=>[m.id,m]));
  return messageTree(thread).filter(entry=>entry.index!==0).map(({message:m,index,depth})=>{
@@ -127,7 +133,7 @@ async function createDraft(reply){
    draft=await prepareLiveReply(sourceThread,sourceThread.messages[messageIndex],id=>news('article',{group,id,images:0}));
    if(view!==sourceView||serverId!==sid||(currentThread()?.id!==sourceThread.id||currentThread()?.messages[messageIndex]?.id!==sourceMessageId))return;
   }else draft=reply?replyDraft(currentThread(),currentThread().messages[messageIndex]):{server:serverId,group,parent:null,subject:'',body:'',images:[]};
-  Object.assign(draft,{senderName:server.name||'',senderEmail:server.email||'',encoding:server.encoding||'utf-8',...serverEndpoint(server),postId:crypto.randomUUID()});
+  Object.assign(draft,{senderName:server.name||'',senderEmail:server.email||'',encoding:server.encoding||'utf-8',...serverEndpoint(server),postBrand:'cnews',postId:crypto.randomUUID()});
   state.draft=draft;draftImages=[];view='compose';save();render();
  }catch(e){toast('未能載入引用：'+e.message)}finally{preparingReply=false}
 }
@@ -146,7 +152,7 @@ function updateSendStatus(){
  if(email)email.setAttribute('aria-invalid',String(!!email.value.trim()&&!validEmail(email.value)));
 }
 
-function composeScreen(){const d=state.draft;return nav(btn('取消','cancel-compose'),' ',btn('Attach Photo','photo',icon('camera'),draftImages.length>=MAX_ATTACHMENTS||attachingImages?'disabled':'')+btn('Send','send','Send',!canSend()?'disabled':''))+`<div class="compose-field"><label>Group:</label><span>${esc(d.group)}</span></div><div class="compose-field"><label for="subject">Subject:</label><input id="subject" aria-label="Subject" value="${esc(d.subject)}" autocomplete="off"></div><p id="compose-send-help" class="compose-help" role="status" aria-live="polite">${esc(blockedSendReason())}</p>${d.deliveryError?`<div class="delivery-error" role="status">${esc(d.deliveryError)}${d.duplicatePost?btn('用新識別碼再試','renew-post-id','用新識別碼再試'):''}</div>`:''}<textarea id="body" class="compose-body" aria-label="正文" placeholder="">${esc(d.body)}</textarea><div class="attachments">${draftImages.map((src,i)=>`<div class="attachment"><img src="${esc(src)}" alt="附件 ${i+1}">${btn('移除附件 '+(i+1),'remove-image','×',`data-index="${i}" ${attachingImages?'disabled':''}`)}</div>`).join('')}</div><div class="compose-foot"><span class="attachment-status" aria-live="polite">Photos: ${draftImages.length}/${MAX_ATTACHMENTS}${attachingImages?' · Loading…':''}</span><br>--<br>${liveDraft()?'yrNewsEx · Live<br>Send 會公開發佈到 '+esc(currentServer().host):'yrNewsEx · demo'}</div><input type="file" id="photo-input" accept="image/png,image/jpeg,image/webp,image/gif" multiple><input type="file" id="camera-input" accept="image/*" capture="environment">`}
+function composeScreen(){const d=state.draft;return nav(btn('取消','cancel-compose'),' ',btn('Attach Photo','photo',icon('camera'),draftImages.length>=MAX_ATTACHMENTS||attachingImages?'disabled':'')+btn('Send','send','Send',!canSend()?'disabled':''))+`<div class="compose-field"><label>Group:</label><span>${esc(d.group)}</span></div><div class="compose-field"><label for="subject">Subject:</label><input id="subject" aria-label="Subject" value="${esc(d.subject)}" autocomplete="off"></div><p id="compose-send-help" class="compose-help" role="status" aria-live="polite">${esc(blockedSendReason())}</p>${d.deliveryError?`<div class="delivery-error" role="status">${esc(d.deliveryError)}${d.duplicatePost?btn('用新識別碼再試','renew-post-id','用新識別碼再試'):''}</div>`:''}<textarea id="body" class="compose-body" aria-label="正文" placeholder="">${esc(d.body)}</textarea><div class="attachments">${draftImages.map((src,i)=>`<div class="attachment"><img src="${esc(src)}" alt="附件 ${i+1}">${btn('移除附件 '+(i+1),'remove-image','×',`data-index="${i}" ${attachingImages?'disabled':''}`)}</div>`).join('')}</div><div class="compose-foot"><span class="attachment-status" aria-live="polite">Photos: ${draftImages.length}/${MAX_ATTACHMENTS}${attachingImages?' · Loading…':''}</span><br>--<br>${liveDraft()?'cNews · Live<br>Send 會公開發佈到 '+esc(currentServer().host):'cNews · demo'}</div><input type="file" id="photo-input" accept="image/png,image/jpeg,image/webp,image/gif" multiple><input type="file" id="camera-input" accept="image/*" capture="environment">`}
 let settingsDraft=null,settingsReturn='groups';
 function settingsScreen(){
  const s=settingsDraft,locked=!!s.id&&s.mode==='nntp';
@@ -370,7 +376,7 @@ async function handle(action,b){
  case 'group':openGroup(b.dataset.group,b.dataset.server);break;
  case 'settings':settings(b.dataset.server);break;
  case 'add-server':settings(null);break;
- case 'about':toast('yrNewsEx · Demo 本機示例／Live 真實 NNTP');break;
+ case 'about':toast('cNews · Demo 本機示例／Live 真實 NNTP');break;
  case 'unsubscribe':{const s=state.servers.find(s=>s.id===b.dataset.server);s.subscriptions=s.subscriptions.filter(g=>g!==b.dataset.group);save();render();break}
  case 'expand':setThreadExpanded(tid,!expanded.has(tid));break;
  case 'article':openArticle(tid,index);break;

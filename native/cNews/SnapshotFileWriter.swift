@@ -4,7 +4,7 @@ import Foundation
 /// Encoding large article/image caches must never block UI input or photo selection.
 final class SnapshotFileWriter: @unchecked Sendable {
     private let file: URL
-    private let queue = DispatchQueue(label: "org.yrnewsex.snapshot-writer", qos: .utility)
+    private let queue = DispatchQueue(label: "org.cnews.snapshot-writer", qos: .utility)
     private let lock = NSLock()
     private var pending: (ReaderSnapshot, @Sendable (String) -> Void)?
     private var running = false

@@ -11,7 +11,16 @@ final class ReaderStore: ObservableObject {
     private let file: URL
     private lazy var writer = SnapshotFileWriter(file: file)
     init() {
-        file = URL.applicationSupportDirectory.appending(path: "yrNewsEx/native-demo.json")
+        let destination = URL.applicationSupportDirectory.appending(path: "cNews/native-demo.json")
+        let legacy = URL.applicationSupportDirectory.appending(path: "yrNewsEx/native-demo.json")
+        var selected = destination
+        if !FileManager.default.fileExists(atPath: destination.path), FileManager.default.fileExists(atPath: legacy.path) {
+            do {
+                try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: legacy, to: destination)
+            } catch { selected = legacy }
+        }
+        file = selected
         if FileManager.default.fileExists(atPath: file.path) {
             do { snapshot = try JSONDecoder().decode(ReaderSnapshot.self, from: Data(contentsOf: file)) }
             catch { snapshot = demoSnapshot(); storageError = "未能讀取本機資料：\(error.localizedDescription)" }
@@ -298,7 +307,7 @@ final class ReaderStore: ObservableObject {
 }
 
 @main
-struct YrNewsExApp: App {
+struct CNewsApp: App {
     @StateObject private var store = ReaderStore()
     var body: some Scene {
         WindowGroup {
@@ -333,7 +342,7 @@ struct ReaderAction: Identifiable {
     var action: () -> Void
     var id: String { title }
 }
-/// Flat action sheet keeps the yrNews layout on newer iOS versions too.
+/// Flat action sheet shared by reader controls.
 struct ReaderActionSheet: View {
     var title: String? = nil
     var items: [ReaderAction]

@@ -45,7 +45,11 @@ def build_article(data, image_type):
     encoding = data.get('encoding', 'utf-8')
     if encoding not in ('big5', 'utf-8'):
         raise ValueError('Invalid encoding')
-    body = body.rstrip() + '\n\n-- \nyrNewsEx\n'
+    brand = data.get('postBrand', 'cnews')
+    if brand not in ('cnews', 'yrnewsex'):
+        raise ValueError('Invalid postBrand')
+    signature = 'cNews' if brand == 'cnews' else 'yrNewsEx'
+    body = body.rstrip() + '\n\n-- \n' + signature + '\n'
     try:
         body.encode(encoding)
     except UnicodeEncodeError:
@@ -55,8 +59,8 @@ def build_article(data, image_type):
     message['Newsgroups'] = group
     message['Subject'] = subject
     message['Date'] = formatdate(localtime=True)
-    message['Message-ID'] = '<yrnewsex.' + token + '@yrnewsex.invalid>'
-    message['User-Agent'] = 'yrNewsEx prototype'
+    message['Message-ID'] = '<' + brand + '.' + token + '@' + brand + '.invalid>'
+    message['User-Agent'] = 'cNews prototype'
     refs = data.get('references', [])
     if not isinstance(refs, list) or len(refs) > 100 or any(not isinstance(r,str) or not MESSAGE_ID.fullmatch(r) for r in refs):
         raise ValueError('Invalid References')

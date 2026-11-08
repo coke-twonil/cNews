@@ -1,6 +1,6 @@
 import Foundation
 func check(_ value: @autoclosure () -> Bool, _ label: String) { guard value() else { fatalError(label) }; print("PASS \(label)") }
-let directory = FileManager.default.temporaryDirectory.appendingPathComponent("yrnewsex-writer-" + UUID().uuidString)
+let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cnews-writer-" + UUID().uuidString)
 defer { try? FileManager.default.removeItem(at: directory) }
 let file = directory.appendingPathComponent("snapshot.json")
 let writer = SnapshotFileWriter(file: file)

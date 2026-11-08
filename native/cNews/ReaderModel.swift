@@ -93,7 +93,7 @@ func demoSnapshot() -> ReaderSnapshot {
 
 func scrollDemoThread() -> NewsThread {
     NewsThread(id: "native-scroll-demo", subject: "長文章捲動測試（本機示例）", messages: [
-        NewsMessage(id: "native-scroll-message", author: "yrNewsEx Demo", body: "呢篇係本機操作示例，用嚟試上下捲動同左右切換。\n\n" + (1...40).map { "第 \($0) 段：向上拖動可以繼續閱讀；左右 swipe 會切換文章，唔會誤當成點擊。" }.joined(separator: "\n\n"))
+        NewsMessage(id: "native-scroll-message", author: "cNews Demo", body: "呢篇係本機操作示例，用嚟試上下捲動同左右切換。\n\n" + (1...40).map { "第 \($0) 段：向上拖動可以繼續閱讀；左右 swipe 會切換文章，唔會誤當成點擊。" }.joined(separator: "\n\n"))
     ])
 }
 
@@ -141,8 +141,10 @@ struct ReplyDraft: Codable {
     var photos: [ReplyPhoto] = []
     var status: String?
     var fingerprint: String?
-    var messageID: String { "<yrnewsex.\(id)@yrnewsex.invalid>" }
-    mutating func changed() { id = UUID().uuidString.lowercased(); status = nil; fingerprint = nil }
+    // Missing on pre-rename drafts: retain their original delivery identity.
+    var messageIDBrand: String? = "cnews"
+    var messageID: String { let brand = messageIDBrand ?? "yrnewsex"; return "<\(brand).\(id)@\(brand).invalid>" }
+    mutating func changed() { messageIDBrand = "cnews"; id = UUID().uuidString.lowercased(); status = nil; fingerprint = nil }
 }
 
 struct BlockedUser: Identifiable, Codable, Equatable {

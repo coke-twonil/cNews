@@ -45,7 +45,7 @@ export async function prepareLiveReply(thread,message,fetchMessage){
 export async function postLive(payload){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000);
  try{
-  const response=await fetch('http://127.0.0.1:8767/post',{method:'POST',headers:{'X-yrNewsEx':'reader','Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal});
+  const response=await fetch('http://127.0.0.1:8767/post',{method:'POST',headers:{'X-cNews':'reader','Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal});
   const result=await response.json();
   if(!response.ok){const error=new Error(result.error||'Server 拒絕發文');error.uncertain=result.uncertain;error.duplicate=result.duplicate;throw error}
   if(!result.accepted)throw Error('未收到 server 接受發文嘅回覆');
@@ -58,10 +58,10 @@ export async function postLive(payload){
 export async function prepareLivePayload(d,images,{uuid=()=>crypto.randomUUID(),hash=async text=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text))),b=>b.toString(16).padStart(2,'0')).join('')}={}){
  const payload=livePayload(d,images),{postId,...content}=payload;
  const fingerprint=await hash(JSON.stringify(content));
- if(!d.postId||(d.postFingerprint&&d.postFingerprint!==fingerprint))d.postId=uuid();
+ if(!d.postId||(d.postFingerprint&&d.postFingerprint!==fingerprint)){d.postId=uuid();d.postBrand='cnews'}
  d.postFingerprint=fingerprint;
- return {...payload,postId:d.postId};
+ return {...payload,postId:d.postId,postBrand:d.postBrand||'cnews'};
 }
 export function renewPostId(d,uuid=()=>crypto.randomUUID()){
- d.postId=uuid();delete d.postFingerprint;delete d.duplicatePost;delete d.deliveryError;
+ d.postBrand='cnews';d.postId=uuid();delete d.postFingerprint;delete d.duplicatePost;delete d.deliveryError;
 }

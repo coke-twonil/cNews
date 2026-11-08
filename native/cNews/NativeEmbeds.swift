@@ -121,7 +121,7 @@ struct EmbedWebView: UIViewRepresentable {
         view.isOpaque = false; view.backgroundColor = .black
         view.scrollView.isScrollEnabled = false
         view.navigationDelegate = context.coordinator
-        view.loadHTMLString(markup, baseURL: URL(string: "https://yrnewsex.invalid/"))
+        view.loadHTMLString(markup, baseURL: URL(string: "https://cnews.invalid/"))
         return view
     }
     func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.parent = self }

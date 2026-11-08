@@ -116,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Require the reader origin and a custom header: other sites cannot drive
         # even read-only queries through this local service.
-        if self.headers.get('Origin') != ORIGIN or self.headers.get('X-yrNewsEx') != 'reader':
+        if self.headers.get('Origin') != ORIGIN or self.headers.get('X-cNews') != 'reader':
             self.reply(403, {'error': 'Reader origin required'})
             return
         try:
@@ -166,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path not in ('/post','/headers'):
             self.reply(404, {'error':'Not found'}); return
-        if self.headers.get('Origin') != ORIGIN or self.headers.get('X-yrNewsEx') != 'reader':
+        if self.headers.get('Origin') != ORIGIN or self.headers.get('X-cNews') != 'reader':
             self.reply(403, {'error':'Reader origin required'}); return
         try:
             length = int(self.headers.get('Content-Length','0'))
@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(204)
         self.send_header('Access-Control-Allow-Origin', ORIGIN)
-        self.send_header('Access-Control-Allow-Headers', 'X-yrNewsEx, Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'X-cNews, Content-Type')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST')
         self.end_headers()
 

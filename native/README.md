@@ -1,10 +1,10 @@
-# yrNewsEx 原生 iOS
+# cNews 原生 iOS
 
-開啟 `yrNewsEx.xcodeproj`，選 yrNewsEx scheme 及 iPhone Simulator，Run。最低 iOS 17；目前於 Xcode 27.2、iOS 27.2 Simulator 編譯及試讀。
+開啟 `cNews.xcodeproj`，選 cNews scheme 及 iPhone Simulator，Run。最低 iOS 17；目前於 Xcode 27.2、iOS 27.2 Simulator 編譯及試讀。
 
 ## 試用
 
-Device Hub → yrNewsEx → **news.twonil.hk · Live** 下面嘅 general.chat。Demo 區維持本機操作示例。
+Device Hub → cNews → **news.twonil.hk · Live** 下面嘅 general.chat。Demo 區維持本機操作示例。
 
 Live 直接用 Swift／Network.framework TCP 連 NNTP，唔依賴瀏覽器、localhost 或 Python helper。Server 設定 → Subscribe Group 由 LIST ACTIVE 載入目錄，搜尋／打剔／取消打剔，再返回按 Done 保存。Name／Email 屬 server 設定；發文前要填身份，未填亦可閱讀。既有 server 地址／port 固定以免快取混淆，另一地址請新增 server。
 
@@ -35,16 +35,16 @@ Live 支援在目前 group 開新主題及回覆，實際由 server 決定是否
 ## 檢查
 
 ```sh
-xcrun swiftc native/yrNewsEx/ReaderModel.swift native/Tests/main.swift -o /tmp/yrnewsex-model-tests
-/tmp/yrnewsex-model-tests
-xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/NNTPClient.swift native/NetworkTests/main.swift -o /tmp/yrnewsex-network-tests
+xcrun swiftc native/cNews/ReaderModel.swift native/Tests/main.swift -o /tmp/cnews-model-tests
+/tmp/cnews-model-tests
+xcrun swiftc native/cNews/ReaderModel.swift native/cNews/NNTPClient.swift native/NetworkTests/main.swift -o /tmp/cnews-network-tests
 python3 scripts/test_native_nntp.py
-xcodebuild -project native/yrNewsEx.xcodeproj -scheme yrNewsEx \
+xcodebuild -project native/cNews.xcodeproj -scheme cNews \
   -sdk iphonesimulator -configuration Debug \
-  -derivedDataPath /tmp/yrnewsex-build CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath /tmp/cnews-build CODE_SIGNING_ALLOWED=NO build
 ```
 
-未完成原生項目：真機相機及完整功能驗收、圖片放大、cache retention／儲存容量管理。Bundle identifier 暫用 `org.yrnewsex.reader`；正式發佈前改成擁有人帳戶可用識別碼。模擬器唔需要付費開發者會籍。
+未完成原生項目：真機相機及完整功能驗收、圖片放大、cache retention／儲存容量管理。Bundle identifier 暫用 `org.cnews.reader`；正式發佈前改成擁有人帳戶可用識別碼。模擬器唔需要付費開發者會籍。
 
 最新介面修正：移除 Get Older Messages 按鈕及下載選單內嘅補舊文提示；保留 Refresh／Next／Latest，既有快取保留。上文驗證記錄描述移除前測試。
 
@@ -64,8 +64,8 @@ WebKit 使用 non-persistent data store，只接受主 frame 傳入嘅有限高�
 33 項原生測試通過（既有 20 項 + 13 項 embed 辨識、去重及網址驗證）。新增：
 
 ```sh
-xcrun swiftc native/yrNewsEx/EmbedModel.swift native/EmbedTests/main.swift -o /tmp/yrnewsex-embed-tests
-/tmp/yrnewsex-embed-tests
+xcrun swiftc native/cNews/EmbedModel.swift native/EmbedTests/main.swift -o /tmp/cnews-embed-tests
+/tmp/cnews-embed-tests
 ```
 
 實作參考：X 官方 [embed 說明](https://help.x.com/en/using-x/how-to-embed-a-post)、Meta 官方 [oEmbed plugin 說明](https://github.com/facebook/meta-embeds-for-wordpress/blob/main/README.md)。最終顯示仍取決於原貼可用性及平台限制。
@@ -73,7 +73,7 @@ xcrun swiftc native/yrNewsEx/EmbedModel.swift native/EmbedTests/main.swift -o /t
 
 ## test.test 原生相片回覆（2026-11-06）
 
-已用原生 UI 完成一次公開回覆：test.test 原有「yrNewsEx 功能測試（請忽略）2026-11-05」thread，文章編號 **1063**，Message-ID `<yrnewsex.8ffa6cb1-f373-4441-a41a-105827b2e813@yrnewsex.invalid>`。使用明確測試身份及產生嘅漸層圖，唔用私人相片；完成後 server Name／Email 還原原先空白。公開測試文章保留，未刪除。照片只加入模擬器 Photos，唔修改使用者真機相庫。
+曾用原生 UI 在測試群組完成一次公開相片回覆，使用明確測試身份及產生嘅漸層圖，唔用私人相片；完成後 server Name／Email 還原原先空白。公開測試文章保留，未刪除。測試照片只加入模擬器相庫。
 
 驗證：只新增一篇；server 讀回 JPEG 6,581 bytes，References 接原父文；MIME 為 text/plain → image/jpeg → text/plain（history）。Send 收到 240 先成功，返回原清單未有新回覆；手動 Refresh 後未讀數由 4 升至 5，開回覆成功見新文字、測試圖、history 正確次序。截圖 `docs/native-photo-reply-readback-preview.png`。
 
@@ -84,8 +84,8 @@ xcrun swiftc native/yrNewsEx/EmbedModel.swift native/EmbedTests/main.swift -o /t
 44 項原生測試通過（原有 33 + 11 項發文／MIME／相片／去重／本機 POST 讀回）。測試發現 Swift Character 對 CRLF 嘅辨識差異，已改以 newline character set 驗證 header／command，避免注入。
 
 ```sh
-xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/NNTPClient.swift native/yrNewsEx/PostingModel.swift native/PostingTests/main.swift -o /tmp/yrnewsex-posting-tests
-python3 scripts/test_native_nntp.py /tmp/yrnewsex-posting-tests
+xcrun swiftc native/cNews/ReaderModel.swift native/cNews/NNTPClient.swift native/cNews/PostingModel.swift native/PostingTests/main.swift -o /tmp/cnews-posting-tests
+python3 scripts/test_native_nntp.py /tmp/cnews-posting-tests
 ```
 
 
@@ -142,10 +142,10 @@ Server Settings 底部新增紅色 Delete Server。確認視窗會顯示 server 
 驗證：6 項 PhotoTests（24 MP、EXIF 方向、大小限制、metadata、預覽縮圖及損壞檔案）、4 項 PersistenceTests（最新草稿順序、相片 bytes、文章快取及寫入錯誤）、13 項既有發文測試通過。模擬器 Demo 回覆實際匯入產生的 24 MP 色塊照片，仍可打字、再加入兩張產生的測試圖；三張後 icon 停用，取消編輯再開草稿保留文字及三張圖。沒有公開發文，沒有修改真機相庫。相機實拍仍需真機驗收。
 
 ```sh
-xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/PhotoPreparation.swift native/PhotoTests/main.swift -o /tmp/yrnewsex-photo-tests
-/tmp/yrnewsex-photo-tests
-xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/SnapshotFileWriter.swift native/PersistenceTests/main.swift -o /tmp/yrnewsex-persistence-tests
-/tmp/yrnewsex-persistence-tests
+xcrun swiftc native/cNews/ReaderModel.swift native/cNews/PhotoPreparation.swift native/PhotoTests/main.swift -o /tmp/cnews-photo-tests
+/tmp/cnews-photo-tests
+xcrun swiftc native/cNews/ReaderModel.swift native/cNews/SnapshotFileWriter.swift native/PersistenceTests/main.swift -o /tmp/cnews-persistence-tests
+/tmp/cnews-persistence-tests
 ```
 
 
@@ -172,3 +172,6 @@ xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/SnapshotFileWrite
 
 
 字體微調：Groups 的 group 名稱以 18pt 為標準字級並繼續跟 Dynamic Type 縮放；threads message 標題 17→18pt；message 正文、history 及原文網址 17→18pt，額外行距保持 5pt。
+
+
+改名為 cNews：Xcode project、target、scheme、app 顯示名稱及新文章識別碼已更新。本機資料自動搬移，舊草稿保留原發送識別碼以免重複發文。現有真機安裝沿用私人簽名設定的 bundle identifier，保留原有資料；新開發者使用公開預設 `org.cnews.reader`。

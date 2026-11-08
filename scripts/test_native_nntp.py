@@ -60,6 +60,6 @@ with socketserver.TCPServer(('127.0.0.1', 0), Handler) as server:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        subprocess.run([sys.argv[1] if len(sys.argv) > 1 else '/tmp/yrnewsex-network-tests', str(server.server_address[1])], check=True)
+        subprocess.run([sys.argv[1] if len(sys.argv) > 1 else '/tmp/cnews-network-tests', str(server.server_address[1])], check=True)
     finally:
         server.shutdown()

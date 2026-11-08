@@ -25,7 +25,7 @@ export function mergeHeaders(existing, rows, server, group){
 export async function nntp(path,params={}){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);
  try{
-  const response=await fetch(`http://127.0.0.1:8767/${path}?${new URLSearchParams(params)}`,{headers:{'X-yrNewsEx':'reader'},signal:controller.signal});
+  const response=await fetch(`http://127.0.0.1:8767/${path}?${new URLSearchParams(params)}`,{headers:{'X-cNews':'reader'},signal:controller.signal});
   const result=await response.json();if(!response.ok)throw new Error(result.error||'NNTP 連線失敗');return result;
  }catch(e){throw new Error(e.name==='AbortError'?'NNTP 連線逾時':e.message==='Failed to fetch'?'未能連接 NNTP helper，請啟動 scripts/serve.py':e.message)}finally{clearTimeout(timer)}
 }
@@ -51,6 +51,6 @@ export function applyArticleContent(message,result){
 
 export function serverEndpoint(server){return {host:server.host,port:server.port||119,tls:!!server.tls||Number(server.port)===563}}
 export async function headersBatch(server,group,numbers){
- const response=await fetch('http://127.0.0.1:8767/headers',{method:'POST',headers:{'X-yrNewsEx':'reader','Content-Type':'application/json'},body:JSON.stringify({...serverEndpoint(server),group,numbers})});
+ const response=await fetch('http://127.0.0.1:8767/headers',{method:'POST',headers:{'X-cNews':'reader','Content-Type':'application/json'},body:JSON.stringify({...serverEndpoint(server),group,numbers})});
  const result=await response.json();if(!response.ok)throw Error(result.error||'未能下載文章');return result;
 }

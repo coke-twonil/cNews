@@ -77,7 +77,7 @@ export function mountEmbeds(container){
   frame.addEventListener('error',()=>{clearTimeout(timer);active.delete(token);fail(card,frame)},{once:true});
  }
  function message(event){
-  if(event.origin!==origin.origin||event.data?.type!=='yrnewsex-embed')return;
+  if(event.origin!==origin.origin||event.data?.type!=='cnews-embed')return;
   const entry=active.get(event.data.token);
   if(!entry||event.source!==entry.frame.contentWindow)return;
   const {card,frame,timer}=entry;

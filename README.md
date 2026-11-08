@@ -1,12 +1,10 @@
-# yrNewsEx
+# cNews
 
-yrNewsEx **完全參考 yrNews 嘅介面、功能同操作體驗，以 Swift 重新開發**。由於 yrNews 已經冇再更新，亦冇公開 source code，所以我哋建立 yrNewsEx，希望延續熟悉嘅 iPhone newsgroup 閱讀體驗。
-
-目標係操作順暢、保留原版 look and feel，並將程式碼公開，方便一齊改進。專案仍在開發中，未上架 App Store；原生版本尚未完成原版所有功能，亦未宣稱逐像素完全一致。
+cNews 係一個 iOS newsgroup reader。
 
 ## 原生 iPhone app
 
-用 Xcode 開啟 [`native/yrNewsEx.xcodeproj`](native/yrNewsEx.xcodeproj)，選 **yrNewsEx** scheme 及 iPhone Simulator，再按 Run。最低 iOS 17，目前已在 iOS 27.2 Simulator 驗證。模擬器唔需要付費 Apple Developer 會籍；真機簽名請使用自己嘅開發帳戶及 bundle identifier。
+用 Xcode 開啟 [`native/cNews.xcodeproj`](native/cNews.xcodeproj)，選 **cNews** scheme 及 iPhone Simulator，再按 Run。最低 iOS 17，目前已在 iOS 27.2 Simulator 驗證。模擬器唔需要付費 Apple Developer 會籍；真機簽名請使用自己嘅開發帳戶及 bundle identifier。
 
 現有功能：
 
@@ -16,9 +14,10 @@ yrNewsEx **完全參考 yrNews 嘅介面、功能同操作體驗，以 Swift 重
 - 新訊息只按 Refresh 下載；超過 500 篇可揀數量、Next／Latest 或 All，分批儲存。
 - UTF-8／Big5 文字、MIME 圖片及本機快取／已讀狀態。
 - IG、X、YouTube 等內容內嵌；不支援／受平台限制內容保留原連結或預覽。
-- `test.test` 真實 Reply，相片最多三張、四代父鏈引用、草稿／附件保存及重試查核；發送後手動 Refresh 先顯示新回覆。
+- 新主題及回覆，相片最多三張、四代父鏈引用、草稿／附件保存及重試查核；發送後手動 Refresh 先顯示新文章。
+- 按 sender IP 封鎖、收藏、搜尋及 group 拖動排序。
 
-一般群組發文、新主題、帳密登入、完整相機真機驗收、收藏及容量管理等仍未完成。詳細功能、驗證及限制見 [`native/README.md`](native/README.md)。
+帳密登入、完整相機真機驗收、圖片放大及容量管理等仍待完善。詳細功能、驗證及限制見 [`native/README.md`](native/README.md)。
 
 ## 操作 prototype
 

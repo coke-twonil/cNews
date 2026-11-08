@@ -26,9 +26,9 @@ func buildReply(draft: ReplyDraft, server: NewsServer, group: String, subject: S
     func base64(_ data: Data) -> String {
         data.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
     }
-    let boundary = "yrnewsex_" + draft.id
+    let boundary = "cnews_" + draft.id
     let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0); date.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
-    var lines = ["From: \(encodedWords(server.name)) <\(server.email)>", "Newsgroups: \(group)", "Subject: \(encodedWords(subject))", "Date: \(date.string(from: Date()))", "Message-ID: \(draft.messageID)", "User-Agent: yrNewsEx/0.1", "MIME-Version: 1.0"]
+    var lines = ["From: \(encodedWords(server.name)) <\(server.email)>", "Newsgroups: \(group)", "Subject: \(encodedWords(subject))", "Date: \(date.string(from: Date()))", "Message-ID: \(draft.messageID)", "User-Agent: cNews/0.1", "MIME-Version: 1.0"]
     if !refs.isEmpty { lines += ["References: " + refs.joined(separator: "\r\n "), "In-Reply-To: " + refs.last!] }
     lines += ["Content-Type: multipart/mixed; boundary=\"\(boundary)\"", ""]
     func appendText(_ text: String) { lines += ["--"+boundary, "Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: base64", "", base64(Data(text.utf8))] }

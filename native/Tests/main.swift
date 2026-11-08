@@ -89,3 +89,10 @@ var orderedSnapshot = demoSnapshot()
 orderedSnapshot.servers[0].groups = reorderedGroups(orderedSnapshot.servers[0].groups, moving: "general.chat", to: 2)
 let persistedOrder = try JSONDecoder().decode(ReaderSnapshot.self, from: JSONEncoder().encode(orderedSnapshot))
 check(persistedOrder.servers[0].groups == ["general.soccer_n_chat","test.test","general.chat"], "Group order survives relaunch")
+
+let legacyDraft = try JSONDecoder().decode(ReplyDraft.self, from: Data(#"{"id":"saved-id","text":"draft","photos":[],"status":"uncertain"}"#.utf8))
+check(legacyDraft.messageID == "<yrnewsex.saved-id@yrnewsex.invalid>", "legacy uncertain draft retains delivery ID")
+var editedDraft = legacyDraft
+editedDraft.changed()
+check(editedDraft.messageID.hasPrefix("<cnews.") && editedDraft.status == nil, "edited draft uses new identity")
+check(ReplyDraft().messageID.hasPrefix("<cnews."), "new draft uses cNews identity")

@@ -29,7 +29,17 @@ class Client:
 
 class PostingTests(unittest.TestCase):
     def data(self,**extra):
-        return dict(group='test.test',name='yrNewsEx Test',email='yrnewsex-test@example.invalid',subject='測試',body='繁體中文內容',postId=str(uuid.uuid4()),encoding='big5',images=[],**extra)
+        return dict(group='test.test',name='cNews Test',email='cnews-test@example.invalid',subject='測試',body='繁體中文內容',postId=str(uuid.uuid4()),encoding='big5',images=[],**extra)
+    def test_renamed_delivery_identity(self):
+        d = self.data()
+        current, _ = post.build_article(d, bridge.image_type)
+        self.assertTrue(str(current['Message-ID']).startswith('<cnews.'))
+        d['postBrand'] = 'yrnewsex'
+        legacy, _ = post.build_article(d, bridge.image_type)
+        self.assertTrue(str(legacy['Message-ID']).startswith('<yrnewsex.'))
+        self.assertIn('yrNewsEx', bridge.article_body(legacy.as_bytes().split(b'\r\n')))
+        d['postBrand'] = 'untrusted'
+        with self.assertRaises(ValueError): post.build_article(d, bridge.image_type)
     def test_mime_roundtrip_big5_utf8_and_three_images(self):
         d=self.data();d['images']=['data:image/png;base64,iVBORw0KGgo=']*3
         message,encoding=post.build_article(d,bridge.image_type)
@@ -58,7 +68,7 @@ class PostingTests(unittest.TestCase):
         message,_=post.build_article(d,bridge.image_type)
         old=BytesParser(policy=policy.default).parsebytes(message.as_bytes())
         # Same headers/body as the old single-text representation.
-        old.clear_content();old.set_content(d['body']+'\n\n-- \nyrNewsEx\n',charset='big5',cte='base64')
+        old.clear_content();old.set_content(d['body']+'\n\n-- \ncNews\n',charset='big5',cte='base64')
         self.assertEqual(post.content_signature(message),post.content_signature(old))
     def test_reply_headers_are_actual_parent_chain(self):
         d=self.data(references=['<root@test>','<parent@test>'],replyTo='<parent@test>')
@@ -108,7 +118,7 @@ class PostingTests(unittest.TestCase):
     def test_post_handler_guards_origin_and_validates_before_connecting(self):
         d=self.data();raw=json.dumps(d).encode()
         class Handler:
-            path='/post';headers={'Origin':bridge.ORIGIN,'X-yrNewsEx':'reader','Content-Type':'application/json','Content-Length':str(len(raw))};rfile=io.BytesIO(raw)
+            path='/post';headers={'Origin':bridge.ORIGIN,'X-cNews':'reader','Content-Type':'application/json','Content-Length':str(len(raw))};rfile=io.BytesIO(raw)
             def reply(self,status,value):self.result=(status,value)
         h=Handler()
         with patch.object(bridge,'open_client',return_value=Client()) as connect:

@@ -2,7 +2,7 @@
 
 參考使用者提供嘅 `ScreenRecording_11-05-2026 16-12-58_1.MP4`，長 205.785 秒。本機以每 3 秒抽幀，檢視全部五頁 contact sheets，再細看 84s、114s、180s 畫面。原片同抽幀只作本機參考，唔推上公開 repo。
 
-| 時間 | 片中流程 | yrNewsEx 行為 |
+| 時間 | 片中流程 | cNews 行為 |
 | --- | --- | --- |
 | 3–12s | Groups 右上角＋，Add Server | ＋開表單；Server、Port、Name、Email、Encoding |
 | 12–72s | 填 server 及身份，揀 Big5，完成 | 連線測試通過先新增；身份按 server 保存 |

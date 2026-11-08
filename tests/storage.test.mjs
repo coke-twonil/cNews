@@ -22,3 +22,8 @@ test('搬移儲存失敗仍可讀舊資料；冇舊資料時唔建立空紀錄',
  assert.equal(readMigratedStorage(storage,'current','legacy'),'saved');
  const empty=store([]);assert.equal(readMigratedStorage(empty,'current','legacy'),null);assert.equal(empty.values.size,0);
 });
+
+test('successive renames prefer the most recent legacy store',()=>{
+ const storage=store([['oldest','old'],['previous','recent']]);
+ assert.equal(readMigratedStorage(storage,'new',['previous','oldest']),'recent');
+});

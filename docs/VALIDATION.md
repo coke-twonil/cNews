@@ -26,7 +26,7 @@
 
 ## 下一輪驗收優先次序
 
-1. 用戶以現有原版 reader 對照原型，指出字體、間距、按鍵／手勢差異；先修到符合熟悉操作。
+1. 用戶測試原型，指出字體、間距、按鍵／手勢差異；先修到符合熟悉操作。
 2. 裝妥 Xcode 後建立 SwiftUI 原生版，以實際 iPhone 還原系統 sheet、文字輸入、滑動、動畫。
 3. 連接用戶指定嘅 server，逐一驗證 Big5、內嵌圖片、未讀及回覆，再測試大量資料下嘅流暢度。
 
@@ -114,7 +114,7 @@
 - 無效 IG 內容成功後備到可點原連結。隔離 iframe 動態高度同捲動按位置載入已驗證；原生 iPhone 手勢／播放／登入仍待實機驗證。
 - 詳見 [EMBEDS.md](EMBEDS.md)。
 
-## 新 app 命名為 yrNewsEx（2026-11-05）
+## 專案名稱及儲存搬移驗證
 
 - 已統一介面標題、Groups 底部名稱、撰寫簽名、輔助說明、文件、package 名稱、embed 訊息協定及 User-Agent。
 - 文章庫及分頁定位使用新儲存名稱，首次讀取會搬移舊資料；保留文章、訂閱、已讀、收藏同文字草稿，唔重設原型。新資料優先，唔被舊分頁覆蓋。
@@ -165,7 +165,7 @@
 
 ## 2026-11-05 真實 POST／Reply
 
-- 真實 server 專用 test.test 原本空白；只公開發出一篇「yrNewsEx 功能測試（請忽略）2026-11-05」及其一篇回覆，使用 yrNewsEx 測試／yrnewsex-test@example.invalid，冇用使用者私人身份。新帖含一張程式產生嘅 16×16 PNG 測試圖。
+- 真實 server 專用 test.test 原本空白；曾公開發出一篇明確標示為測試嘅主題及一篇回覆，使用示範身份，冇用使用者私人身份。新帖含一張程式產生嘅 16×16 PNG 測試圖。
 - 兩次都收到 server 240。新帖 Big5 中文＋圖片重新讀取成功；回覆包含 emoji 自動改 UTF-8，References 指向新帖，原文引用同 emoji 重新讀取均正確。
 - UI test.test Refresh 載入兩篇，顯示 2/2 未讀及一層真實父子關係；截圖 live-send-reply-preview.jpg。UI 開回覆、Reply 會取得原文並預填兩篇引用；Name／Email 未填時 Send disabled，填有效公開身份後 enabled。該 UI 草稿最後取消，冇額外發出第三篇。
 - Helper 重開後，以原 Message-ID／原 payload 重試只確認既有文章；群組篇數仍 2，冇重複發文。
@@ -204,7 +204,7 @@
 ## 2026-11-05 新操作片及 Server／Groups／500 篇下載
 
 - 已讀使用者新片（205.785s），每 3s 抽幀，檢視五張 contact sheets 及關鍵大圖，記錄新表單／搜尋打剔／Next-Newest alert 流程；見 SERVER_GROUPS_AND_DOWNLOADS.md。
-- 真實新增 Name=yrNewsEx UI Test、公開代用 email 嘅臨時 server，連線測試成功。Subscribe 搜尋 general、多選、Done 返回設定再 Done；Groups 編輯取消訂閱成功，重新訂閱後 3,101 篇 cache 保留。
+- 真實新增 示範名稱、公開代用 email 嘅臨時 server，連線測試成功。Subscribe 搜尋 general、多選、Done 返回設定再 Done；Groups 編輯取消訂閱成功，重新訂閱後 3,101 篇 cache 保留。
 - 實際 general.chat 初次提示當時 3,100 篇；Cancel 後仍 0 unread。Next 500 成功 → 再次提示 2,601 新篇；More=1500 正確更新按鈕；Latest 500 後 cache 1,000。Get Older 顯示 2,101 舊篇，All 分五批完成後 3,101 unread。期間 server 有新文，所以每個提示以當時 snapshot 為準。
 - 原文章已讀／收藏以既有 merge 邏輯保存；新增未讀。新訊息計數使用 LISTGROUP，實際 CLI 計數與編號數量一致；headers endpoint 返回 500，全部屬所選編號。
 - Composer DOM Name=0、Email=0，填主題／正文後 Send enabled，使用所屬 server profile，未公開發出測試訊息。

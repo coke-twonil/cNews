@@ -3,7 +3,7 @@ func check(_ condition: @autoclosure () -> Bool, _ label: String) { guard condit
 func rejects(_ label: String, _ action: () throws -> Void) { do { try action(); fatalError(label) } catch { print("PASS \(label)") } }
 let png = Data([137,80,78,71,13,10,26,10,1,2,3])
 let photo = ReplyPhoto(data: png, mime: "image/png")
-let server = NewsServer(title: "test", host: "fixture", name: "yrNewsEx 測試", email: "yrnewsex-test@example.invalid", groups: ["test.test"])
+let server = NewsServer(title: "test", host: "fixture", name: "cNews 測試", email: "cnews-test@example.invalid", groups: ["test.test"])
 var draft = ReplyDraft(text: "Native reply photo test 😀\n\n> Parent: old history", photos: [photo])
 let payload = try buildReply(draft: draft, server: server, group: "test.test", subject: "Re: 試野", refs: ["<root@fixture>"])
 let decoded = try decodeArticle(payload)

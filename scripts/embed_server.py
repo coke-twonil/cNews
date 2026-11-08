@@ -165,7 +165,7 @@ def resolve_threads_share(url):
             raise ValueError("Invalid Threads redirect")
         if not item.get("resolve_share"):
             return item
-        request = urllib.request.Request(item["url"], method="HEAD", headers={"User-Agent": "yrNewsEx-Prototype/0.1"})
+        request = urllib.request.Request(item["url"], method="HEAD", headers={"User-Agent": "cNews-Prototype/0.1"})
         try:
             with urllib.request.build_opener(NoRedirects()).open(request, timeout=5):
                 raise ValueError("Threads share did not redirect to a post")
@@ -189,7 +189,7 @@ def resolve_facebook_share(url):
             raise ValueError("Invalid Facebook redirect")
         if not item.get("resolve_share"):
             return item
-        request = urllib.request.Request(item["url"], method="HEAD", headers={"User-Agent": "yrNewsEx-Prototype/0.1"})
+        request = urllib.request.Request(item["url"], method="HEAD", headers={"User-Agent": "cNews-Prototype/0.1"})
         try:
             with urllib.request.build_opener(NoRedirects()).open(request, timeout=5):
                 raise ValueError("Facebook share did not redirect to a post")
@@ -213,7 +213,7 @@ def provider_html(item, width=500):
         entry = _cache.get(api)
         if entry and time.monotonic() - entry[0] < 300:
             return entry[1]
-    request = urllib.request.Request(api, headers={"Accept": "application/json", "User-Agent": "yrNewsEx-Prototype/0.1"})
+    request = urllib.request.Request(api, headers={"Accept": "application/json", "User-Agent": "cNews-Prototype/0.1"})
     response = urllib.request.build_opener(ProviderRedirects()).open(request, timeout=8)
     with response:
         raw = response.read(1024 * 1024 + 1)
@@ -239,7 +239,7 @@ def render_document(markup, origin, token, failed=False):
     # URL/navigation command through this postMessage channel.
     control = """
 const target=ORIGIN,token=TOKEN;let ready=false;
-function report(status){parent.postMessage({type:'yrnewsex-embed',token,status,height:Math.max(100,Math.min(1800,Math.ceil(document.body.getBoundingClientRect().height)))},target)}
+function report(status){parent.postMessage({type:'cnews-embed',token,status,height:Math.max(100,Math.min(1800,Math.ceil(document.body.getBoundingClientRect().height)))},target)}
 function inspect(){for(const frame of document.querySelectorAll('iframe')){if(!frame.dataset.observed){frame.dataset.observed='1';frame.addEventListener('load',()=>{ready=true;report('ready')});frame.addEventListener('error',()=>report('error'))}}if(ready)report('ready')}
 new MutationObserver(inspect).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','height','src']});
 new ResizeObserver(()=>{if(ready)report('ready')}).observe(document.body);

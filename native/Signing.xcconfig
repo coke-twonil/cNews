@@ -1,4 +1,4 @@
 // Shared defaults. Personal signing settings stay in an ignored local file.
-PRODUCT_BUNDLE_IDENTIFIER = org.yrnewsex.reader
+PRODUCT_BUNDLE_IDENTIFIER = org.cnews.reader
 CODE_SIGN_STYLE = Automatic
 #include? "LocalSigning.xcconfig"

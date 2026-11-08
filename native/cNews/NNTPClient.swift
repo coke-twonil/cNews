@@ -10,7 +10,7 @@ enum NewsError: LocalizedError {
 /// One connection per background operation; never runs on the main actor.
 final class NNTPClient: @unchecked Sendable {
     private let connection: NWConnection
-    private let queue = DispatchQueue(label: "org.yrnewsex.nntp")
+    private let queue = DispatchQueue(label: "org.cnews.nntp")
     private var buffer = Data()
     private var closed = false
     init(host: String, port: Int) throws {
