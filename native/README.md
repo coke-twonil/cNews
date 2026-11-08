@@ -158,3 +158,14 @@ xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/SnapshotFileWrite
 發送成功移除 Sent／Saved locally 提示及 OK 步驟，直接關閉新主題／回覆畫面。回覆保留既有返回原 thread 列表行為，成功後唔自動插入文章；手動 Refresh 先加入。失敗及未確認結果仍保留草稿、附件同錯誤，唔自動關閉。
 
 驗證：模擬器實測底部選單、相簿列表、四欄相片格仔及完成後三張附件顯示在頂部；只剩一個名額時不能多選第二張。Demo 相片回覆按 Send 後直接返回原列表，無成功提示及無新回覆即時插入；無公開發文。圖片、持久化及 MIME 23 項回歸測試通過。
+
+
+## 2026-11-08：下拉更新、三相片 Send、Group 拖動排序
+
+- Threads 到頂向下拉執行同 Refresh 按鈕相同的檢查／下載流程，包括超過 500 篇的數量及 Next／Latest 選擇。只有下拉或按鈕觸發，進 group 不自動取新文。使用原生 refresh control，加上按頂部實際座標／完成拖動方向及距離判斷的 SwiftUI 路徑，避免短列表或零初速手勢漏判；兩路共用防重複入口，普通上下捲動及左右 thread swipe 保留。
+- Choose Existing 直接開四欄圖片庫，移除相簿列表第一步；頂部附件縮圖、完成／取消及最多三張不變。
+- 修正附件 Base64 分行使用 String 從頭逐段定位的平方時間問題，改用 Foundation 一次性編碼。Send 前縮圖、指紋計算、MIME 建立全在背景進行，只建立一次 payload 後交給 NNTP transport。
+- 新相片最長邊 1280px、JPEG 最多 512KB；已有合規 JPEG 不再重壓，舊草稿大相在正常 Send 前縮細。未確認／duplicate 的舊發送保留原 payload 及 Message-ID 供查收錄，避免修改內容後誤判／重複發文。實際圖片 bytes 仍隨文章發送，頂部縮圖只作預覽；新文字 → 相片 → history 次序不變。
+- Groups 每行最右加三橫拖動把手，按住直接拖，無長按等待。只改同 server 的 group 次序，放手保存；其他區域仍開 group，其他 server 排列及文章不變。重開保持次序，取消手勢不會鎖住捲動。
+
+驗證：40 項模型、8 項圖片、17 項發文／附件測試通過。三張各 1 MB 測試附件建立 MIME 約 0.002 秒，localhost POST／讀回 bytes 及 history 一致。原生模擬器 Live 流程亦實際發出三張測試圖到 localhost fixture：收到一篇文章及三個 JPEG，整篇約 313KB；畫面顯示 Sending 並成功返回原列表，無公開發文。UI 實測圖片庫直入、頂部三縮圖、把手即拖／反向拖／重開保存，下拉合併待刷新 Demo 回覆、再次下拉零新文變 0，以及左右 thread swipe 保留。暫時 localhost server 只存在模擬器，不會加入真機或 repo；私人資料及相片未提交 GitHub。

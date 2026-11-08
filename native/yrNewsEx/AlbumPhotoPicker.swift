@@ -24,51 +24,26 @@ struct AlbumPhotoPicker: View {
                         Text("未獲允許讀取相片。請到 iPhone 設定允許相片存取，再重新開啟相簿。")
                         Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
                     }.padding(24)
-                } else {
-                    List {
-                        if limited { Text("只顯示你已允許存取嘅相片。").font(.footnote).foregroundStyle(.secondary) }
-                        ForEach(albums) { album in
-                            NavigationLink {
-                                albumGrid(album)
-                            } label: {
-                                HStack(spacing: 12) {
-                                    if let asset = album.assets.last { PhotoAssetThumbnail(asset: asset).frame(width: 64, height: 64).clipped() }
-                                    else { Image(systemName: "rectangle.stack").foregroundStyle(.gray).frame(width: 64, height: 64) }
-                                    VStack(alignment: .leading, spacing: 4) { Text(album.title); Text("\(album.assets.count)").font(.footnote).foregroundStyle(.secondary) }
-                                }.padding(.vertical, 4)
-                            }
-                        }
-                    }.listStyle(.plain)
+                } else if let library = albums.first {
+                    PhotoAlbumGrid(album: library, limit: limit, selected: $selected, onDone: { onDone(selected) }, directLibrary: true)
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.black).toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                ReaderHeader(title: "照片") { Button("取消") { dismiss() }.frame(minHeight: 44) } right: { EmptyView() }
+                if loading || denied { ReaderHeader(title: "圖片庫") { Button("取消") { dismiss() }.frame(minHeight: 44) } right: { EmptyView() } }
             }
         }.task { await loadAlbums() }
-    }
-    func albumGrid(_ album: PhotoAlbum) -> some View {
-        PhotoAlbumGrid(album: album, limit: limit, selected: $selected, onDone: { onDone(selected) })
     }
     func loadAlbums() async {
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         guard !Task.isCancelled else { return }
         limited = status == .limited
         guard status == .authorized || limited else { denied = true; loading = false; return }
-        let onlyLimited = limited
         albums = await Task.detached {
             let options = PHFetchOptions()
             options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
             options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
             func items(_ result: PHFetchResult<PHAsset>) -> [PHAsset] { var assets: [PHAsset] = []; result.enumerateObjects { asset, _, _ in assets.append(asset) }; return assets }
-            var result = [PhotoAlbum(id: "all", title: "最近項目", assets: items(PHAsset.fetchAssets(with: options)))]
-            guard !onlyLimited else { return result }
-            for type: PHAssetCollectionSubtype in [.smartAlbumRecentlyAdded, .smartAlbumFavorites, .smartAlbumSelfPortraits, .smartAlbumPanoramas, .smartAlbumScreenshots, .smartAlbumLivePhotos] {
-                let collections = PHAssetCollection.fetchAssetCollections(with: .smartAlbum, subtype: type, options: nil)
-                collections.enumerateObjects { collection, _, _ in result.append(PhotoAlbum(id: collection.localIdentifier, title: collection.localizedTitle ?? "相簿", assets: items(PHAsset.fetchAssets(in: collection, options: options)))) }
-            }
-            PHAssetCollection.fetchAssetCollections(with: .album, subtype: .any, options: nil).enumerateObjects { collection, _, _ in
-                result.append(PhotoAlbum(id: collection.localIdentifier, title: collection.localizedTitle ?? "相簿", assets: items(PHAsset.fetchAssets(in: collection, options: options))))
-            }
+            let result = [PhotoAlbum(id: "all", title: "最近項目", assets: items(PHAsset.fetchAssets(with: options)))]
             return result
         }.value
         loading = false
@@ -79,6 +54,7 @@ struct PhotoAlbumGrid: View {
     let limit: Int
     @Binding var selected: [PHAsset]
     let onDone: () -> Void
+    var directLibrary = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         ScrollView {
@@ -99,7 +75,10 @@ struct PhotoAlbumGrid: View {
             Text("\(album.assets.count) 張照片").font(.footnote).foregroundStyle(.secondary).padding(20)
         }.defaultScrollAnchor(.top).background(.black).toolbar(.hidden, for: .navigationBar).navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .top, spacing: 0) {
-            ReaderHeader(title: album.title) { ReaderBack(title: "照片") { dismiss() } } right: {
+            ReaderHeader(title: directLibrary ? "圖片庫" : album.title) {
+                if directLibrary { Button("取消") { dismiss() }.frame(minHeight: 44) }
+                else { ReaderBack(title: "照片") { dismiss() } }
+            } right: {
                 Button("完成", action: onDone).frame(minHeight: 44).disabled(selected.isEmpty)
             }
         }

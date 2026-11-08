@@ -88,3 +88,56 @@ struct EdgeBack: View {
         }
     }
 }
+
+/// Attach the native refresh control to the actual scroll view, including short lists.
+struct PullToRefresh: UIViewRepresentable {
+    var enabled: Bool
+    var action: () async -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+    func makeUIView(context: Context) -> Probe {
+        let view = Probe(); view.isUserInteractionEnabled = false; view.coordinator = context.coordinator; return view
+    }
+    func updateUIView(_ view: Probe, context: Context) {
+        context.coordinator.action = action; context.coordinator.control.isEnabled = enabled; view.attach()
+    }
+    static func dismantleUIView(_ view: Probe, coordinator: Coordinator) { coordinator.detach() }
+    final class Probe: UIView {
+        weak var coordinator: Coordinator?
+        override func didMoveToWindow() { super.didMoveToWindow(); attach() }
+        func attach() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil else { return }
+                var ancestor = self.superview
+                while let view = ancestor {
+                    if let scroll = view as? UIScrollView { self.coordinator?.attach(scroll); return }
+                    ancestor = view.superview
+                }
+            }
+        }
+    }
+    final class Coordinator: NSObject {
+        let control = UIRefreshControl()
+        weak var scroll: UIScrollView?
+        var action: () async -> Void
+        var refreshing = false
+        init(action: @escaping () async -> Void) {
+            self.action = action; super.init()
+            control.tintColor = .systemBlue; control.addTarget(self, action: #selector(refresh), for: .valueChanged)
+        }
+        func attach(_ scroll: UIScrollView) {
+            scroll.alwaysBounceVertical = true
+            guard self.scroll !== scroll else { return }
+            detach(); self.scroll = scroll; scroll.refreshControl = control
+        }
+        @objc func refresh() {
+            guard !refreshing else { return }
+            refreshing = true; control.beginRefreshing()
+            Task { @MainActor in
+                await action(); control.endRefreshing(); refreshing = false
+            }
+        }
+        func detach() {
+            if scroll?.refreshControl === control { scroll?.refreshControl = nil }; scroll = nil
+        }
+    }
+}

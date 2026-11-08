@@ -35,3 +35,20 @@ let topicPayload = try buildReply(draft: topic, server: server, group: "test.tes
 check(articleHeaders(topicPayload)["references"] == nil && articleHeaders(topicPayload)["in-reply-to"] == nil, "New topic has no reply ancestry")
 let topicRestored = try JSONDecoder().decode(ReplyDraft.self, from: JSONEncoder().encode(topic))
 check(topicRestored.subject == "New topic" && topicRestored.photos.count == 1, "New post subject and photo survive draft restoration")
+var large = Data([0xff,0xd8,0xff]); large.append(Data(repeating: 73, count: 1024*1024))
+let triple = ReplyDraft(text: "Three photos\n\n> History", photos: (0..<3).map { _ in ReplyPhoto(data: large, mime: "image/jpeg") })
+let started = Date()
+let triplePayload = try buildReply(draft: triple, server: server, group: "test.test", subject: "three photo fixture", refs: ["<root@fixture>"])
+let elapsed = Date().timeIntervalSince(started)
+check(elapsed < 10, "Three 1 MB attachments encode without quadratic String indexing")
+print(String(format: "Three-photo MIME build: %.3f seconds", elapsed))
+let tripleDecoded = try decodeArticle(triplePayload)
+check(tripleDecoded.images == [large, large, large] && tripleDecoded.body.contains("> History"), "Three-photo MIME preserves bytes and quoted history")
+let mimeLines = latin(triplePayload).components(separatedBy: "\r\n")
+check(mimeLines.filter { !$0.contains(":") && !$0.hasPrefix("--") }.allSatisfy { $0.count <= 76 }, "Large Base64 lines remain RFC compliant")
+if CommandLine.arguments.count > 1 {
+    let client = try NNTPClient(host: "127.0.0.1", port: Int(CommandLine.arguments[1])!); defer { client.close() }
+    try client.post(triplePayload)
+    let readback = try client.rawArticle(group: "test.fixture", identifier: triple.messageID)
+    check(try! matchingArticle(readback, triplePayload), "Three large photo POST and readback match on local server")
+}

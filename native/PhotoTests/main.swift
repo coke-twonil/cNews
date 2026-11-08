@@ -16,12 +16,18 @@ let prepared = try PhotoPreparation.prepare(data)
 let source = CGImageSourceCreateWithData(prepared.data as CFData, nil)!
 let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)! as NSDictionary
 let width = properties[kCGImagePropertyPixelWidth] as! Int, height = properties[kCGImagePropertyPixelHeight] as! Int
-check(max(width, height) <= 2048, "24 MP input downsampled to bounded dimensions")
+check(max(width, height) <= 1280, "24 MP input downsampled to bounded dimensions")
 check(height > width, "Camera EXIF orientation applied")
-check(prepared.mime == "image/jpeg" && prepared.data.count <= PhotoPreparation.maxBytes, "JPEG attachment remains within 5 MB")
+check(prepared.mime == "image/jpeg" && prepared.data.count <= PhotoPreparation.maxBytes, "JPEG attachment remains within 512 KB")
 check(properties[kCGImagePropertyGPSDictionary] == nil, "Source GPS metadata not copied")
 let thumb = PhotoPreparation.thumbnail(prepared.data)!
 let thumbSource = CGImageSourceCreateWithData(thumb as CFData, nil)!
 let thumbProperties = CGImageSourceCopyPropertiesAtIndex(thumbSource, 0, nil)! as NSDictionary
 check(max(thumbProperties[kCGImagePropertyPixelWidth] as! Int, thumbProperties[kCGImagePropertyPixelHeight] as! Int) <= 240, "Composer preview uses small thumbnail")
 do { _ = try PhotoPreparation.prepare(Data("invalid photo".utf8)); fatalError("invalid accepted") } catch { print("PASS malformed image produces recoverable error") }
+
+let ready = try PhotoPreparation.forSending(prepared)
+check(ready.id == prepared.id && ready.data == prepared.data, "Already compressed photo is not recompressed on retry")
+let legacyPhoto = ReplyPhoto(data: data, mime: "image/jpeg")
+let smaller = try PhotoPreparation.forSending(legacyPhoto)
+check(smaller.id == legacyPhoto.id && smaller.data.count <= PhotoPreparation.maxBytes, "Old large draft photo is compressed before send without losing attachment identity")

@@ -238,3 +238,8 @@ extension ReaderSnapshot {
         return true
     }
 }
+
+func reorderedGroups(_ groups: [String], moving group: String, to index: Int) -> [String] {
+    guard let source = groups.firstIndex(of: group), groups.indices.contains(index), source != index else { return groups }
+    var result = groups; result.remove(at: source); result.insert(group, at: index); return result
+}

@@ -271,8 +271,7 @@ final class ReaderStore: ObservableObject {
         if snapshot.replyDrafts == nil { snapshot.replyDrafts = [:] }
         snapshot.replyDrafts?[key] = draft
     }
-    func submitReply(draft: ReplyDraft, server: NewsServer, group: String, subject: String, refs: [String]) async throws {
-        let bytes = try buildReply(draft: draft, server: server, group: group, subject: subject, refs: refs)
+    func submitReply(draft: ReplyDraft, server: NewsServer, group: String, bytes: Data) async throws {
         try await Task.detached {
             let client = try NNTPClient(host: server.host, port: server.port); defer { client.close() }
             func existing() throws -> Bool? {
@@ -366,11 +365,25 @@ struct ReaderBack: View {
         Button(action: action) { HStack(spacing: 4) { Image(systemName: "chevron.left").font(.system(size: 17)); Text(title).lineLimit(1) }.frame(minHeight: 44) }
     }
 }
+struct GroupRowFrames: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue(), uniquingKeysWith: { _, new in new }) }
+}
+struct GroupDragState {
+    var serverID: String
+    var group: String
+    var original: [String]
+    var order: [String]
+    var frames: [String: CGRect]
+}
 struct GroupsScreen: View {
     @EnvironmentObject var store: ReaderStore
     @State private var query = ""
     @State private var settings: NewsServer?
     @State private var adding = false
+    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var dragging: GroupDragState?
+    @GestureState private var handleHeld = false
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -382,17 +395,34 @@ struct GroupsScreen: View {
                             HStack { Text(server.title).fontWeight(.semibold); Spacer(); Image(systemName: "chevron.right").foregroundStyle(.gray) }
                                 .padding(12).background(Color(white: 0.15)).foregroundStyle(.white)
                         }
-                        ForEach(server.groups.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }.map { groupKey(server.id, $0) }, id: \.self) { rowID in
+                        ForEach(orderedGroups(server).filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }.map { groupKey(server.id, $0) }, id: \.self) { rowID in
                             let group = String(rowID.dropFirst(server.id.count + 1))
-                            NavigationLink { ThreadScreen(server: server, group: group) } label: {
-                                HStack { Text(group); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.gray) }.padding(.horizontal, 16).frame(minHeight: 48).foregroundStyle(.white)
-                            }
+                            HStack(spacing: 0) {
+                                NavigationLink { ThreadScreen(server: server, group: group) } label: {
+                                    HStack { Text(group); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.gray) }.padding(.leading, 16).padding(.trailing, 8).frame(minHeight: 48).foregroundStyle(.white)
+                                }
+                                Image(systemName: "line.3.horizontal").foregroundStyle(dragging?.group == group && dragging?.serverID == server.id ? .blue : .gray)
+                                    .frame(width: 44, height: 48).contentShape(Rectangle())
+                                    .highPriorityGesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("group-order"))
+                                        .updating($handleHeld) { _, held, _ in held = true }
+                                        .onChanged { value in dragGroup(group, server: server, at: value.location.y) }
+                                        .onEnded { _ in finishGroupDrag() })
+                                    .accessibilityLabel("Reorder \(group)")
+                                    .accessibilityAdjustableAction { direction in
+                                        let index = server.groups.firstIndex(of: group) ?? 0
+                                        let target = direction == .increment ? index + 1 : index - 1
+                                        saveGroupOrder(server.id, reorderedGroups(server.groups, moving: group, to: target))
+                                    }
+                            }.background(GeometryReader { geometry in Color.clear.preference(key: GroupRowFrames.self, value: [rowID: geometry.frame(in: .named("group-order"))]) })
                             Divider().overlay(Color(white: 0.1))
                         }
                     }
                     Text("Demo 為本機示例；Live 可直接連線閱讀 NNTP").font(.footnote).foregroundStyle(.secondary).padding(20)
                 }
             }
+            .coordinateSpace(name: "group-order").onPreferenceChange(GroupRowFrames.self) { rowFrames = $0 }
+            .onChange(of: handleHeld) { _, held in if !held { finishGroupDrag() } }
+            .onDisappear { finishGroupDrag() }
             .background(.black).toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 ReaderHeader { Color.clear.frame(width: 44, height: 44) } right: {
@@ -403,6 +433,27 @@ struct GroupsScreen: View {
             .sheet(isPresented: $adding) { ServerEditor(server: NewsServer(title: "", host: "", name: "", email: "", groups: []), isNew: true) }
         }
     }
+    func orderedGroups(_ server: NewsServer) -> [String] { dragging?.serverID == server.id ? dragging!.order : server.groups }
+    func dragGroup(_ group: String, server: NewsServer, at y: CGFloat) {
+        if dragging == nil {
+            var frames: [String: CGRect] = [:]
+            for name in server.groups { if let frame = rowFrames[groupKey(server.id, name)] { frames[name] = frame } }
+            dragging = GroupDragState(serverID: server.id, group: group, original: server.groups, order: server.groups, frames: frames)
+        }
+        guard var state = dragging, state.serverID == server.id, state.group == group else { return }
+        guard let target = state.frames.min(by: { abs($0.value.midY-y) < abs($1.value.midY-y) })?.key, let index = state.original.firstIndex(of: target) else { return }
+        state.order = reorderedGroups(state.original, moving: group, to: index)
+        dragging = state
+    }
+    func finishGroupDrag() {
+        if let state = dragging { saveGroupOrder(state.serverID, state.order) }
+        dragging = nil
+    }
+    func saveGroupOrder(_ serverID: String, _ order: [String]) {
+        guard let index = store.snapshot.servers.firstIndex(where: { $0.id == serverID }), Set(order) == Set(store.snapshot.servers[index].groups), store.snapshot.servers[index].groups != order else { return }
+        store.snapshot.servers[index].groups = order
+    }
+
 }
 
 struct ServerEditor: View {
@@ -511,6 +562,10 @@ struct ReadingSession: Identifiable, Hashable {
     var initial: ReadingItem
     var id: String { initial.id }
 }
+struct ThreadTopOffset: PreferenceKey {
+    static var defaultValue: CGFloat = -.infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
 struct ThreadScreen: View {
     @EnvironmentObject var store: ReaderStore
     var server: NewsServer
@@ -534,6 +589,10 @@ struct ThreadScreen: View {
     @State private var checking = false
     @State private var quantity = 500
     @State private var customQuantity = "500"
+    @State private var topOffset: CGFloat = 0
+    @State private var restingTopOffset: CGFloat?
+    @State private var pullBeganAtTop: Bool?
+    @State private var lastPull = -Double.infinity
     var threads: [NewsThread] {
         var result = store.snapshot.threads.compactMap { t -> NewsThread? in
             let belongs = server.id == "demo" ? (t.serverID == nil && (t.groupName ?? "general.chat") == group) : (t.serverID == server.id && t.groupName == group)
@@ -546,6 +605,7 @@ struct ThreadScreen: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                Color.clear.frame(height: 0).background(GeometryReader { geometry in Color.clear.preference(key: ThreadTopOffset.self, value: geometry.frame(in: .named("thread-scroll")).minY) })
                 if !searching { Text(group).font(.system(size: 34, weight: .bold)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8) }
                 searchBar
                 if checking { ProgressView("Checking new messages…").padding() }
@@ -560,7 +620,22 @@ struct ThreadScreen: View {
                     }.background(HorizontalSwipe { _ in toggle(thread.id) })
                 }
             }.background(EdgeBack(active: edgeBackActive && !downloadDialog && !actions && blockTarget == nil && reading == nil && !composing) { dismiss() })
+            .background(PullToRefresh(enabled: !checking && !store.busy && !downloadDialog) { await pullRefresh() })
         }
+        .coordinateSpace(name: "thread-scroll")
+         .onPreferenceChange(ThreadTopOffset.self) { value in
+            topOffset = value
+            if restingTopOffset == nil && value.isFinite { restingTopOffset = value }
+        }
+        .simultaneousGesture(DragGesture(minimumDistance: 15)
+            .onChanged { _ in if pullBeganAtTop == nil { pullBeganAtTop = topOffset >= (restingTopOffset ?? topOffset) - 2 } }
+            .onEnded { value in
+                let beganAtTop = pullBeganAtTop == true; pullBeganAtTop = nil
+                if beganAtTop && value.translation.height >= 90 && value.translation.height > abs(value.translation.width) * 1.4 {
+                    Task { await pullRefresh() }
+                }
+            })
+        .scrollBounceBehavior(.always)
         .onAppear { edgeBackActive = true }.onDisappear { edgeBackActive = false }
         .scrollIndicators(.hidden).background(.black).toolbar(.hidden, for: .navigationBar).navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -668,6 +743,12 @@ struct ThreadScreen: View {
             }
         }.padding(.leading, 12 + CGFloat(min(depth, 12)) * 18).padding(.trailing, 12).frame(minHeight: 70).contentShape(Rectangle())
             .onLongPressGesture { blockTarget = BlockTarget(message: message, serverID: server.id, group: group) }
+    }
+    func pullRefresh() async {
+        guard ProcessInfo.processInfo.systemUptime - lastPull > 1, !checking, !store.busy, !downloadDialog else { return }
+        lastPull = ProcessInfo.processInfo.systemUptime
+        if server.id == "demo" { store.refresh(group: group) }
+        else { await checkMessages() }
     }
     var chosenCount: Int { min(availableNumbers.count, quantity == 0 ? availableNumbers.count : quantity == -1 ? max(0, Int(customQuantity) ?? 0) : quantity) }
     func checkMessages() async {
@@ -990,14 +1071,25 @@ struct ReplyScreen: View {
         }
         let refs = isNewPost ? [] : (Array(NSOrderedSet(array: (message.references ?? []) + [message.id])) as? [String] ?? [message.id])
         let subject = isNewPost ? (draft.subject ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : (thread.subject.lowercased().hasPrefix("re:") ? thread.subject : "Re: " + thread.subject)
-        let fingerprint = postingFingerprint(text: draft.text, photos: draft.photos, name: server.name, email: server.email, subject: subject, refs: refs)
-        if let old = draft.fingerprint, old != fingerprint { draft.changed() }
-        draft.fingerprint = fingerprint
-        let attempt = draft
+        let currentDraft = draft
+        let postingGroup = thread.groupName ?? ""
         do {
-            _ = try buildReply(draft: attempt, server: server, group: thread.groupName ?? "", subject: subject, refs: refs)
+            let prepared = try await Task.detached(priority: .userInitiated) {
+                var attempt = currentDraft
+                // A previously uncertain POST must retain its exact bytes and ID for lookup.
+                if attempt.status != "uncertain" && attempt.status != "duplicate" {
+                    attempt.photos = try attempt.photos.map { try PhotoPreparation.forSending($0) }
+                }
+                let fingerprint = postingFingerprint(text: attempt.text, photos: attempt.photos, name: server.name, email: server.email, subject: subject, refs: refs)
+                if let old = attempt.fingerprint, old != fingerprint { attempt.changed() }
+                attempt.fingerprint = fingerprint
+                let bytes = try buildReply(draft: attempt, server: server, group: postingGroup, subject: subject, refs: refs)
+                return (attempt, bytes)
+            }.value
+            draft = prepared.0
+            let attempt = draft
             draft.status = "uncertain"; saveDraft()
-            try await store.submitReply(draft: attempt, server: server, group: thread.groupName ?? "", subject: subject, refs: refs)
+            try await store.submitReply(draft: attempt, server: server, group: thread.groupName ?? "", bytes: prepared.1)
             store.snapshot.replyDrafts?[draftKey] = nil; dismiss(); onSent()
         } catch {
             let description = error.localizedDescription

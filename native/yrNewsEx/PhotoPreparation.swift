@@ -5,8 +5,8 @@ import UniformTypeIdentifiers
 /// Decode only an orientation-corrected, bounded thumbnail, never the full camera frame.
 /// Call on a worker task; the returned JPEG carries no original location metadata.
 enum PhotoPreparation {
-    static let maxDimension = 2048
-    static let maxBytes = 5 * 1024 * 1024
+    static let maxDimension = 1280
+    static let maxBytes = 512 * 1024
     static func prepare(_ data: Data) throws -> ReplyPhoto {
         try autoreleasepool {
             guard data.count <= 100 * 1024 * 1024,
@@ -17,7 +17,7 @@ enum PhotoPreparation {
                     kCGImageSourceThumbnailMaxPixelSize: maxDimension,
                     kCGImageSourceShouldCacheImmediately: true
                   ] as CFDictionary) else { throw PhotoError.invalid }
-            for quality in [0.85, 0.7, 0.55] {
+            for quality in [0.75, 0.6, 0.45, 0.3] {
                 let output = NSMutableData()
                 guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { throw PhotoError.invalid }
                 CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
@@ -26,6 +26,14 @@ enum PhotoPreparation {
             }
             throw PhotoError.tooLarge
         }
+    }
+    static func forSending(_ photo: ReplyPhoto) throws -> ReplyPhoto {
+        if photo.mime == "image/jpeg", photo.data.count <= maxBytes,
+           let source = CGImageSourceCreateWithData(photo.data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+           max(width, height) <= maxDimension, (properties[kCGImagePropertyOrientation] as? Int ?? 1) == 1 { return photo }
+        var resized = try prepare(photo.data); resized.id = photo.id; return resized
     }
     static func thumbnail(_ data: Data) -> Data? {
         autoreleasepool {
@@ -39,6 +47,6 @@ enum PhotoPreparation {
     }
     enum PhotoError: LocalizedError {
         case invalid, tooLarge
-        var errorDescription: String? { self == .invalid ? "相片無法讀取，請揀另一張相再試。" : "每張相最多 5 MB。" }
+        var errorDescription: String? { self == .invalid ? "相片無法讀取，請揀另一張相再試。" : "相片縮細後仍然太大，請揀另一張相。" }
     }
 }

@@ -27,6 +27,9 @@ Apple 文件：[開發者模式](https://developer.apple.com/documentation/xcode
 - **Block**：長按列表一篇 message，或點內文 header 右側 Block icon，確認 username／email／sender IP。Block 後同 server 其他 groups 同 IP 及其子分支都隱藏；到 Server Settings → Blocked Users 核對身份及 Unblock，確認恢復。冇 sender IP 嘅文章唔可以 Block；第一次要等舊快取來源 headers 讀取完成。
 - **刪除 server**：Server Settings 底部 Delete Server，先核對確認視窗列出嘅 server。Cancel 應保留資料；確認會移除該 server 及所有本機資料，無法還原，其他 servers 不受影響，亦不刪 NNTP server 上文章。
 - **加圖流程／頂部縮圖**：camera → Take New／Choose Existing／Cancel → 相簿 → 揀相 → 完成；附件縮圖只喺最頂 bar 顯示，可逐張移除，最多三張。首次 Choose Existing 按 iOS 提示選相片權限。Send 成功直接關閉編輯畫面，冇 Sent／OK 提示；失敗仍保留草稿。
+- **下拉更新**：threads 列表到頂向下拉，應同右上 Refresh 一樣；再次無新文顯示 0，超過 500 仍揀數量／Next／Latest。
+- **Group 排序**：按住 group 最右三橫把手即上下拖動，放手保存；同 server 內排序，重開後保留。
+- **三相片 Send**：Choose Existing 直接進圖片庫；三張縮圖在頂部，Send 時仍可見 Sending 狀態，成功直接關閉。實際圖片會縮至 1280px／512KB JPEG 再隨文章發送，其他人可看到圖片；唔係只傳頂部預覽。
 - **草稿**：用未發草稿測試文字／附件重開後保存，失敗唔丟內容；「用新識別碼再試」唔會自動發文。
 
 ## 簽名期限

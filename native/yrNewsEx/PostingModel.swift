@@ -24,11 +24,7 @@ func buildReply(draft: ReplyDraft, server: NewsServer, group: String, subject: S
         return chunks.map { "=?UTF-8?B?\(Data($0.utf8).base64EncodedString())?=" }.joined(separator: "\r\n ")
     }
     func base64(_ data: Data) -> String {
-        let text = data.base64EncodedString()
-        return stride(from: 0, to: text.count, by: 76).map { offset in
-            let start = text.index(text.startIndex, offsetBy: offset), end = text.index(start, offsetBy: min(76, text.count-offset))
-            return String(text[start..<end])
-        }.joined(separator: "\r\n")
+        data.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed])
     }
     let boundary = "yrnewsex_" + draft.id
     let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX"); date.timeZone = TimeZone(secondsFromGMT: 0); date.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
