@@ -378,6 +378,7 @@ struct GroupDragState {
 }
 struct GroupsScreen: View {
     @EnvironmentObject var store: ReaderStore
+    @ScaledMetric(relativeTo: .body) private var groupFontSize: CGFloat = 18
     @State private var query = ""
     @State private var settings: NewsServer?
     @State private var adding = false
@@ -399,7 +400,7 @@ struct GroupsScreen: View {
                             let group = String(rowID.dropFirst(server.id.count + 1))
                             HStack(spacing: 0) {
                                 NavigationLink { ThreadScreen(server: server, group: group) } label: {
-                                    HStack { Text(group); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.gray) }.padding(.leading, 16).padding(.trailing, 8).frame(minHeight: 48).foregroundStyle(.white)
+                                    HStack { Text(group).font(.system(size: groupFontSize)); Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.gray) }.padding(.leading, 16).padding(.trailing, 8).frame(minHeight: 48).foregroundStyle(.white)
                                 }
                                 Image(systemName: "line.3.horizontal").foregroundStyle(dragging?.group == group && dragging?.serverID == server.id ? .blue : .gray)
                                     .frame(width: 44, height: 48).contentShape(Rectangle())
@@ -723,7 +724,7 @@ struct ThreadScreen: View {
             Circle().fill(message.read ? Color.clear : Color.blue).frame(width: 6, height: 6)
             VStack(alignment: .leading, spacing: 5) {
                 HStack {
-                    Text(message.subject ?? (depth == 0 ? thread.subject : "Re: \(thread.subject)")).font(.system(size: 17)).foregroundStyle(message.read ? .gray : .white).lineLimit(1)
+                    Text(message.subject ?? (depth == 0 ? thread.subject : "Re: \(thread.subject)")).font(.system(size: 18)).foregroundStyle(message.read ? .gray : .white).lineLimit(1)
                     if message.favourite == true { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow) }
                 }
                 Text(message.author).font(.system(size: 13)).foregroundStyle(.gray).lineLimit(1)

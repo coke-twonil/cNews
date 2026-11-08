@@ -169,3 +169,6 @@ xcrun swiftc native/yrNewsEx/ReaderModel.swift native/yrNewsEx/SnapshotFileWrite
 - Groups 每行最右加三橫拖動把手，按住直接拖，無長按等待。只改同 server 的 group 次序，放手保存；其他區域仍開 group，其他 server 排列及文章不變。重開保持次序，取消手勢不會鎖住捲動。
 
 驗證：40 項模型、8 項圖片、17 項發文／附件測試通過。三張各 1 MB 測試附件建立 MIME 約 0.002 秒，localhost POST／讀回 bytes 及 history 一致。原生模擬器 Live 流程亦實際發出三張測試圖到 localhost fixture：收到一篇文章及三個 JPEG，整篇約 313KB；畫面顯示 Sending 並成功返回原列表，無公開發文。UI 實測圖片庫直入、頂部三縮圖、把手即拖／反向拖／重開保存，下拉合併待刷新 Demo 回覆、再次下拉零新文變 0，以及左右 thread swipe 保留。暫時 localhost server 只存在模擬器，不會加入真機或 repo；私人資料及相片未提交 GitHub。
+
+
+字體微調：Groups 的 group 名稱以 18pt 為標準字級並繼續跟 Dynamic Type 縮放；threads message 標題 17→18pt；message 正文、history 及原文網址 17→18pt，額外行距保持 5pt。

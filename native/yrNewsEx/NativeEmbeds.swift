@@ -7,9 +7,9 @@ struct NativeMessageBody: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(mediaPieces(bodyText)) { piece in
-                if let text = piece.text { Text(text).font(.system(size: 17)).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading) }
+                if let text = piece.text { Text(text).font(.system(size: 18)).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading) }
                 if let url = piece.link {
-                    Button { ExternalLinkOpener.open(url) } label: { Text(url.absoluteString).font(.system(size: 17)).multilineTextAlignment(.leading).foregroundStyle(.blue) }.buttonStyle(.plain)
+                    Button { ExternalLinkOpener.open(url) } label: { Text(url.absoluteString).font(.system(size: 18)).multilineTextAlignment(.leading).foregroundStyle(.blue) }.buttonStyle(.plain)
                 }
                 if let item = piece.embed { NativeEmbedCard(item: item).padding(.vertical, 12) }
             }
