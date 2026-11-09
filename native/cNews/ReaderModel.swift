@@ -17,6 +17,16 @@ struct NewsMessage: Identifiable, Codable, Equatable {
     var senderIPChecked: Bool?
     var favourite: Bool?
     var searchBody: String?
+    var postedAt: Date?
+    var articleBytes: Int?
+    var overviewMetadataChecked: Bool?
+    var historyMediaFiltered: Bool?
+
+    var displaySize: String {
+        let size = articleBytes ?? (bodyLoaded == false ? nil : body.utf8.count + (images ?? []).reduce(0) { $0 + $1.count })
+        guard let size else { return "—" }
+        return size == 0 ? "0 KB" : "\(max(1, Int((Double(size) / 1024).rounded()))) KB"
+    }
 }
 struct NewsThread: Identifiable, Codable {
     var id: String
@@ -244,4 +254,40 @@ extension ReaderSnapshot {
 func reorderedGroups(_ groups: [String], moving group: String, to index: Int) -> [String] {
     guard let source = groups.firstIndex(of: group), groups.indices.contains(index), source != index else { return groups }
     var result = groups; result.remove(at: source); result.insert(group, at: index); return result
+}
+
+func threadTimestamp(_ date: Date, now: Date = .now, calendar: Calendar = Calendar(identifier: .gregorian)) -> String {
+    let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day
+    let clock = calendar.dateComponents([.hour, .minute], from: date)
+    let time = String(format: "%02d:%02d", clock.hour ?? 0, clock.minute ?? 0)
+    switch days {
+    case 0: return time
+    case 1: return "昨日 " + time
+    case 2: return "前日 " + time
+    default:
+        let parts = calendar.dateComponents([.day, .month, .year], from: date)
+        return String(format: "%02d/%02d/%04d %@", parts.day ?? 0, parts.month ?? 0, parts.year ?? 0, time)
+    }
+}
+
+struct QuotedLine {
+    var depth: Int
+    var text: String
+}
+
+func quotedLines(_ history: String) -> [QuotedLine] {
+    let lines = history.components(separatedBy: "\n")
+    var previousDepth = 1
+    return lines.map { line in
+        var content = line.drop(while: { $0 == " " || $0 == "\t" })
+        var depth = 0
+        while content.first == ">" {
+            depth += 1
+            content = content.dropFirst()
+            if content.first == " " { content = content.dropFirst() }
+        }
+        if depth == 0 { depth = previousDepth }
+        previousDepth = min(depth, 12)
+        return QuotedLine(depth: previousDepth, text: String(content))
+    }
 }

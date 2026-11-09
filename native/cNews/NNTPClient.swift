@@ -114,6 +114,9 @@ final class NNTPClient: @unchecked Sendable {
                 let refs = messageIDs(fields[5])
                 var message = NewsMessage(id: fields[4], parentID: refs.last, author: decodeWords(fields[2]), body: "")
                 message.articleNumber = number; message.subject = decodeWords(fields[1]); message.references = refs; message.bodyLoaded = false
+                message.postedAt = parseNewsDate(fields[3])
+                message.articleBytes = fields.count > 6 ? Int(fields[6]).flatMap { $0 >= 0 ? $0 : nil } : nil
+                message.overviewMetadataChecked = true
                 result.append(message)
             }
         }
@@ -166,7 +169,12 @@ final class NNTPClient: @unchecked Sendable {
     }
     func article(group: String, number: Int) throws -> DecodedArticle {
         let raw = try rawArticle(group: group, identifier: String(number))
-        var decoded = try decodeArticle(raw); decoded.senderIP = senderIPFromHeaders(newsHeaderFields(raw)); return decoded
+        var decoded = try decodeArticle(raw, hideHistoryMedia: true)
+        let headers = newsHeaderFields(raw)
+        decoded.senderIP = senderIPFromHeaders(headers)
+        decoded.postedAt = headers["date"].flatMap(parseNewsDate)
+        decoded.articleBytes = raw.count
+        return decoded
     }
     func post(_ article: Data) throws {
         _ = try command("POST", code: "340")
@@ -246,10 +254,32 @@ func decodeWords(_ source: String) -> String {
     }
     return decodeCharset(latinData(text))
 }
-struct DecodedArticle { var body: String; var images: [Data]; var warnings: [String]; var senderIP: String? }
-func decodeArticle(_ data: Data) throws -> DecodedArticle {
+private let newsDateFormatters: [DateFormatter] = [
+    "EEE, d MMM yyyy HH:mm:ss Z", "d MMM yyyy HH:mm:ss Z",
+    "EEE, d MMM yyyy HH:mm Z", "d MMM yyyy HH:mm Z"
+].map { format in
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = format
+    return formatter
+}
+
+func parseNewsDate(_ value: String) -> Date? {
+    let date = value.components(separatedBy: "(")[0].trimmingCharacters(in: .whitespaces)
+    return newsDateFormatters.lazy.compactMap { $0.date(from: date) }.first
+}
+
+struct DecodedArticle {
+    var body: String
+    var images: [Data]
+    var warnings: [String]
+    var senderIP: String?
+    var postedAt: Date?
+    var articleBytes: Int?
+}
+func decodeArticle(_ data: Data, hideHistoryMedia: Bool = false) throws -> DecodedArticle {
     var totalImages = 0
-    func decodePart(_ data: Data, depth: Int) throws -> DecodedArticle {
+    func decodePart(_ data: Data, depth: Int, inHistory: Bool = false) throws -> DecodedArticle {
         guard depth < 12 else { throw NewsError.failure("MIME 巢狀層數太多") }
         let raw = latin(data).replacingOccurrences(of: "\r\n", with: "\n")
         guard let separator = raw.range(of: "\n\n") else { return DecodedArticle(body: decodeCharset(data), images: [], warnings: []) }
@@ -273,12 +303,19 @@ func decodeArticle(_ data: Data) throws -> DecodedArticle {
                 } else if current != nil { current!.append(line) }
             }
             var result = DecodedArticle(body: "", images: [], warnings: [])
+            // An explicitly quoted text part starts the history section of the multipart body.
+            var inQuotedParts = inHistory
             for part in parts {
-                let decoded = try decodePart(latinData(part), depth: depth+1)
+                let decoded = try decodePart(latinData(part), depth: depth+1, inHistory: inQuotedParts)
+                let firstText = decoded.body.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !firstText.isEmpty { inQuotedParts = inHistory || firstText.hasPrefix(">") }
                 if !decoded.body.isEmpty { if !result.body.isEmpty { result.body += "\n\n" }; result.body += decoded.body }
                 result.images += decoded.images; result.warnings += decoded.warnings
             }
             return result
+        }
+        if hideHistoryMedia && (type.lowercased().hasPrefix("message/rfc822") || (inHistory && type.lowercased().hasPrefix("image/"))) {
+            return DecodedArticle(body: "", images: [], warnings: [])
         }
         let transfer = headers["content-transfer-encoding"]?.lowercased() ?? ""
         let payload: Data

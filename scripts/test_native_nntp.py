@@ -37,9 +37,9 @@ class Handler(socketserver.StreamRequestHandler):
                 self.group = line.split()[1]
                 response = '211 2 1 3 test.fixture\r\n'
             elif line == 'OVER 1-1':
-                response = '224 headers\r\n1\tRoot\tAuthor\tdate\t<root@fixture>\t\t100\t2\r\n.\r\n'
+                response = '224 headers\r\n1\tRoot\tAuthor\tMon, 9 Nov 2026 10:14:00 +0800\t<root@fixture>\t\t100\t2\r\n.\r\n'
             elif line == 'OVER 3-3':
-                response = '224 headers\r\n3\tRe: Root\tAuthor\tdate\t<reply@fixture>\t<root@fixture>\t100\t2\r\n.\r\n'
+                response = '224 headers\r\n3\tRe: Root\tAuthor\tMon, 9 Nov 2026 10:14:00 +0800\t<reply@fixture>\t<root@fixture>\t100\t2\r\n.\r\n'
             elif line.startswith('HDR ') or line.startswith('XHDR '):
                 field = line.split()[1]
                 if self.group == 'test.head' or (self.group == 'test.xhdr' and line.startswith('HDR ')):

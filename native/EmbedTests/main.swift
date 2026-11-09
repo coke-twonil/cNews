@@ -16,3 +16,5 @@ check(pieces.filter { $0.embed != nil }.count == 1, "canonical embed deduplicati
 check(pieces.filter { $0.link != nil }.count == 2 && pieces.contains { $0.text?.contains("下一行") == true }, "original links and text retained")
 
 check(parse("https://www.facebook.com/groups/hongkongersmkgirl/permalink/1428489742252766/?tracking=1")?.provider == "facebook", "Facebook group permalink redirect")
+let historyPieces = mediaPieces("https://x.com/user/status/123", embeds: false)
+check(historyPieces.count == 1 && historyPieces[0].link != nil && historyPieces[0].embed == nil, "history links remain tappable without an embed")

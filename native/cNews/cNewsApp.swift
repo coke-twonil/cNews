@@ -73,10 +73,37 @@ final class ReaderStore: ObservableObject {
         }.value
     }
     func available(_ server: NewsServer, _ group: String) async throws -> [Int] {
-        try await Task.detached {
-            let client = try NNTPClient(host: server.host, port: server.port); defer { client.close() }
-            return try client.available(group)
+        let key = groupKey(server.id, group)
+        let missing = (snapshot.liveGroups?[key]?.messages ?? []).filter {
+            $0.overviewMetadataChecked != true && ($0.postedAt == nil || $0.articleBytes == nil)
+        }.compactMap(\.articleNumber)
+        let (numbers, metadata) = try await Task.detached {
+            let client = try NNTPClient(host: server.host, port: server.port)
+            defer { client.close() }
+            let numbers = try client.available(group)
+            let available = Set(numbers)
+            let missingNumbers = missing.filter { available.contains($0) }
+            var metadata: [NewsMessage] = []
+            for offset in stride(from: 0, to: missingNumbers.count, by: 500) {
+                let batch = Array(missingNumbers[offset..<min(offset + 500, missingNumbers.count)])
+                do { metadata += try client.headers(group: group, numbers: batch) }
+                catch { break } // Old metadata can be retried on the next refresh.
+            }
+            return (numbers, metadata)
         }.value
+        try Task.checkCancellation()
+        if !metadata.isEmpty, var cache = snapshot.liveGroups?[key] {
+            let byID = Dictionary(metadata.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for index in cache.messages.indices {
+                guard let header = byID[cache.messages[index].id] else { continue }
+                cache.messages[index].postedAt = header.postedAt ?? cache.messages[index].postedAt
+                cache.messages[index].articleBytes = header.articleBytes ?? cache.messages[index].articleBytes
+                cache.messages[index].overviewMetadataChecked = true
+            }
+            snapshot.liveGroups?[key] = cache
+            rebuild(server: server, group: group)
+        }
+        return numbers
     }
     func rebuild(server: NewsServer, group: String) {
         let cache = snapshot.liveGroups?[groupKey(server.id, group)] ?? LiveGroupCache()
@@ -117,7 +144,10 @@ final class ReaderStore: ObservableObject {
               let thread = snapshot.threads.first(where: { (threadID == nil || $0.id == threadID) && $0.messages.contains(where: { $0.id == id }) }),
               let sid = thread.serverID, let group = thread.groupName,
               let server = snapshot.servers.first(where: { $0.id == sid }),
-              let message = thread.messages.first(where: { $0.id == id }), message.bodyLoaded != true, let number = message.articleNumber else { return }
+              let message = thread.messages.first(where: { $0.id == id }), let number = message.articleNumber else { return }
+        let needsHistoryFiltering = message.historyMediaFiltered != true && !(message.images ?? []).isEmpty &&
+            !replyTextSections(message.body).history.isEmpty
+        guard message.bodyLoaded != true || needsHistoryFiltering else { return }
         loadingArticles.insert(id); defer { loadingArticles.remove(id) }
         do {
             let article = try await Task.detached {
@@ -126,6 +156,9 @@ final class ReaderStore: ObservableObject {
             }.value
             let key = groupKey(sid, group)
             if let i = snapshot.liveGroups?[key]?.messages.firstIndex(where: { $0.id == id }) {
+                snapshot.liveGroups?[key]?.messages[i].postedAt = message.postedAt ?? article.postedAt
+                snapshot.liveGroups?[key]?.messages[i].articleBytes = message.articleBytes ?? article.articleBytes
+                snapshot.liveGroups?[key]?.messages[i].historyMediaFiltered = true
                 snapshot.liveGroups?[key]?.messages[i].body = article.body
                 snapshot.liveGroups?[key]?.messages[i].images = article.images
                 snapshot.liveGroups?[key]?.messages[i].warnings = article.warnings
@@ -735,7 +768,9 @@ struct ThreadScreen: View {
                     Text(message.subject ?? (depth == 0 ? thread.subject : "Re: \(thread.subject)")).font(.system(size: 18)).foregroundStyle(message.read ? .gray : .white).lineLimit(1)
                     if message.favourite == true { Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow) }
                 }
-                Text(message.author).font(.system(size: 13)).foregroundStyle(.gray).lineLimit(1)
+                let time = message.postedAt.map { threadTimestamp($0) } ?? "—"
+                Text("\(senderIdentity(message.author).name) ｜ \(time) ｜ \(message.displaySize)")
+                    .font(.system(size: 13)).foregroundStyle(.gray).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 .onTapGesture {
                     let route = threads.flatMap { t in t.tree.map { ReadingItem(threadID: t.id, messageID: $0.message.id) } }
@@ -853,25 +888,22 @@ struct ArticleScreen: View {
     var body: some View {
         ScrollView {
             if let thread, let message {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(thread.subject).font(.title3).bold()
-                    HStack {
-                        Text(message.author).foregroundStyle(.secondary).textSelection(.enabled)
-                        Spacer()
-                        Button { blockTarget = BlockTarget(message: message, serverID: thread.serverID ?? "demo", group: thread.groupName ?? "general.chat") } label: {
-                            Image(systemName: "person.crop.circle.badge.xmark").font(.system(size: 23)).frame(width: 44, height: 44)
-                        }.accessibilityLabel("Block sender IP")
-                    }
-                    Divider()
-                    if store.loadingArticles.contains(message.id) { ProgressView("Loading message…") }
-                    if message.bodyLoaded == false && !store.loadingArticles.contains(message.id) { Button("Retry loading message") { Task { await store.loadArticle(message.id, threadID: item.threadID) } } }
-                    NativeMessageBody(bodyText: replyTextSections(message.body).own)
-                    ForEach(Array((message.images ?? []).enumerated()), id: \.offset) { _, data in
-                        if let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit() }
-                    }
-                    if !replyTextSections(message.body).history.isEmpty { NativeMessageBody(bodyText: replyTextSections(message.body).history) }
-                    ForEach(message.warnings ?? [], id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
-                }.padding(16).frame(maxWidth: .infinity, minHeight: 800, alignment: .topLeading)
+                let sections = replyTextSections(message.body)
+                VStack(alignment: .leading, spacing: 0) {
+                    articleHeader(thread, message)
+                    VStack(alignment: .leading, spacing: 14) {
+                        if store.loadingArticles.contains(message.id) { ProgressView("Loading message…") }
+                        if message.bodyLoaded == false && !store.loadingArticles.contains(message.id) {
+                            Button("Retry loading message") { Task { await store.loadArticle(message.id, threadID: item.threadID) } }
+                        }
+                        NativeMessageBody(bodyText: sections.own)
+                        ForEach(Array((message.images ?? []).enumerated()), id: \.offset) { _, data in
+                            if let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit() }
+                        }
+                        if !sections.history.isEmpty { QuoteHistory(lines: quotedLines(sections.history)) }
+                        ForEach(message.warnings ?? [], id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
+                    }.padding(16)
+                }.frame(maxWidth: .infinity, minHeight: 800, alignment: .topLeading)
                     .background(HorizontalSwipe { move($0) })
                     .background(EdgeBack(active: edgeBackActive && !composing && !actions && blockTarget == nil) { dismiss() })
             }
@@ -881,7 +913,7 @@ struct ArticleScreen: View {
             .onAppear { edgeBackActive = true }.onDisappear { edgeBackActive = false }
             .scrollIndicators(.hidden).toolbar(.hidden, for: .navigationBar).navigationBarBackButtonHidden(true)
             .safeAreaInset(edge: .top, spacing: 0) {
-                ReaderHeader { ReaderBack(title: thread?.groupName ?? "general.chat") { dismiss() } } right: { Color.clear.frame(width: 44, height: 44) }
+                ReaderHeader(title: threadPosition) { ReaderBack(title: thread?.groupName ?? "general.chat") { dismiss() } } right: { Color.clear.frame(width: 44, height: 44) }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ReaderBottom {
@@ -910,6 +942,39 @@ struct ArticleScreen: View {
             .task(id: item.messageID) { store.markRead(item.messageID, threadID: item.threadID); await store.loadArticle(item.messageID, threadID: item.threadID) }
             .sheet(isPresented: $composing) { if let thread, let message { ReplyScreen(thread: thread, message: message, onSent: onReplySent) } }
     }
+    private var threadPosition: String {
+        let entries = route.filter { $0.threadID == item.threadID }
+        guard let position = entries.firstIndex(of: item) else { return "" }
+        return "\(position + 1)/\(entries.count)"
+    }
+
+    private func articleHeader(_ thread: NewsThread, _ message: NewsMessage) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(message.subject ?? thread.subject)
+                .font(.title3.bold())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+            Divider()
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(message.author).textSelection(.enabled)
+                    if let date = message.postedAt {
+                        Text(date.formatted(date: .abbreviated, time: .shortened))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Button {
+                    blockTarget = BlockTarget(message: message, serverID: thread.serverID ?? "demo", group: thread.groupName ?? "general.chat")
+                } label: {
+                    Image(systemName: "person.crop.circle.badge.xmark")
+                        .font(.system(size: 23)).frame(width: 44, height: 44)
+                }.accessibilityLabel("Block sender IP")
+            }.padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 6)
+            Divider()
+        }.background(Color(white: 0.16))
+    }
+
     func threadDestination(_ delta: Int) -> Int? { adjacentThreadIndex(threadIDs: route.map(\.threadID), index: index, delta: delta) }
     func moveThread(_ delta: Int) { if let destination = threadDestination(delta) { index = destination; store.markRead(item.messageID, threadID: item.threadID) } }
     func move(_ delta: Int) {
@@ -1071,6 +1136,7 @@ struct ReplyScreen: View {
         if !isLive {
             var reply = NewsMessage(id: draft.messageID, parentID: message.id, author: server.name, body: draft.text)
             reply.images = draft.photos.map(\.data)
+            reply.postedAt = .now
             if isNewPost {
                 reply.parentID = nil
                 let newThread = NewsThread(id: draft.messageID, subject: draft.subject ?? "", messages: [reply], groupName: thread.groupName)

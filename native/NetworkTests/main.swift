@@ -23,6 +23,7 @@ if CommandLine.arguments.count > 1 {
     let available = try client.available("test.fixture"); check(available == [1,3], "LISTGROUP sparse numbers")
     let headers = try client.headers(group: "test.fixture", numbers: [1,3])
     check(headers.count == 2 && headers[1].parentID == "<root@fixture>", "OVER sparse range and References")
+    check(headers[0].articleBytes == 100 && headers[0].postedAt == ISO8601DateFormatter().date(from: "2026-11-09T02:14:00Z"), "OVER preserves article date and byte count")
     let ips = try client.senderIPs(group: "test.fixture", numbers: [1,3])
     check(ips[1] == "192.0.2.24" && ips[3] == "2001:db8::1", "HDR downloads source IP for unread articles")
     let oldIPs = try client.senderIPs(group: "test.xhdr", numbers: [1])
@@ -44,3 +45,29 @@ check(senderIPFromHeaders(["injection-info": "news.invalid; Posting-Host = clien
 check(senderIPFromHeaders(["injection-info": "news.invalid; posting-host=\"client.invalid\"; logging-data=\"192.0.2.24\""]) == nil, "Logging data is never mistaken for sender IP")
 check(senderIPFromHeaders(["nntp-posting-host": "192.0.2.24:119"]) == nil, "IPv4 port is not a hostname IP pair")
 check(senderIPFromHeaders(["injection-info": "news.invalid; posting-host=\"client.invalid:999.1.1.1\""]) == nil, "Invalid numeric address rejected")
+
+let quoteAttachment = Data("""
+Content-Type: multipart/mixed; boundary=test
+
+--test
+Content-Type: text/plain
+
+New reply
+--test
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+
+aGVsbG8=
+--test
+Content-Type: text/plain
+
+> Quoted message
+--test
+Content-Type: image/png
+Content-Transfer-Encoding: base64
+
+b2xk
+--test--
+""".utf8)
+let readingArticle = try decodeArticle(quoteAttachment, hideHistoryMedia: true)
+check(readingArticle.body.contains("> Quoted message") && readingArticle.images == [Data("hello".utf8)], "reading keeps the reply photo and omits the quoted photo")

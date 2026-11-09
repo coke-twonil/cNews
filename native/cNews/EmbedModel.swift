@@ -54,13 +54,13 @@ struct BodyPiece: Identifiable {
     var link: URL?
     var embed: EmbedItem?
 }
-func mediaPieces(_ body: String) -> [BodyPiece] {
+func mediaPieces(_ body: String, embeds: Bool = true) -> [BodyPiece] {
     guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [BodyPiece(id: 0, text: body)] }
     var result: [BodyPiece] = [], start = body.startIndex, seen = Set<String>()
     for match in detector.matches(in: body, range: NSRange(body.startIndex..., in: body)) {
         guard let range = Range(match.range, in: body), let url = match.url, ["http","https"].contains(url.scheme?.lowercased() ?? "") else { continue }
         if start < range.lowerBound { result.append(BodyPiece(id: result.count, text: String(body[start..<range.lowerBound]))) }
-        let item = EmbedItem.parse(url)
+        let item = embeds ? EmbedItem.parse(url) : nil
         result.append(BodyPiece(id: result.count, link: url, embed: item.flatMap { seen.insert($0.id).inserted ? $0 : nil }))
         start = range.upperBound
     }

@@ -96,3 +96,19 @@ var editedDraft = legacyDraft
 editedDraft.changed()
 check(editedDraft.messageID.hasPrefix("<cnews.") && editedDraft.status == nil, "edited draft uses new identity")
 check(ReplyDraft().messageID.hasPrefix("<cnews."), "new draft uses cNews identity")
+
+var hongKongCalendar = Calendar(identifier: .gregorian)
+hongKongCalendar.timeZone = TimeZone(identifier: "Asia/Hong_Kong")!
+let iso = ISO8601DateFormatter()
+let monday = iso.date(from: "2026-11-08T16:30:00Z")!
+for (input, expected) in [
+    ("2026-11-08T16:05:00Z", "00:05"),
+    ("2026-11-08T15:59:00Z", "昨日 23:59"),
+    ("2026-11-07T15:59:00Z", "前日 23:59"),
+    ("2026-11-06T15:59:00Z", "06/11/2026 23:59")
+] {
+    check(threadTimestamp(iso.date(from: input)!, now: monday, calendar: hongKongCalendar) == expected, "thread timestamp uses local calendar day: \(expected)")
+}
+let quoteLines = quotedLines("> Parent\n> > Grandparent\n>>> Oldest\n> Newer")
+check(quoteLines.map(\.depth) == [1, 2, 3, 1], "quoted history preserves nesting and returns to outer level")
+check(quoteLines.map(\.text) == ["Parent", "Grandparent", "Oldest", "Newer"], "quote markers are replaced by frames")

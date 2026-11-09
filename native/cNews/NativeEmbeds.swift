@@ -4,18 +4,53 @@ import LinkPresentation
 
 struct NativeMessageBody: View {
     var bodyText: String
+    var isHistory = false
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(mediaPieces(bodyText)) { piece in
-                if let text = piece.text { Text(text).font(.system(size: 18)).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading) }
+            ForEach(mediaPieces(bodyText, embeds: !isHistory)) { piece in
+                if let text = piece.text { Text(text).foregroundStyle(isHistory ? Color(white: 0.68) : .primary).font(.system(size: 18)).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading) }
                 if let url = piece.link {
-                    Button { ExternalLinkOpener.open(url) } label: { Text(url.absoluteString).font(.system(size: 18)).multilineTextAlignment(.leading).foregroundStyle(.blue) }.buttonStyle(.plain)
+                    Button { ExternalLinkOpener.open(url) } label: { Text(url.absoluteString).font(.system(size: 18)).multilineTextAlignment(.leading).foregroundStyle(isHistory ? Color.blue.opacity(0.75) : .blue) }.buttonStyle(.plain)
                 }
                 if let item = piece.embed { NativeEmbedCard(item: item).padding(.vertical, 12) }
             }
         }
     }
 }
+struct QuoteHistory: View {
+    let lines: [QuotedLine]
+    var depth = 1
+
+    private var runs: [[QuotedLine]] {
+        var result: [[QuotedLine]] = []
+        for line in lines {
+            if let last = result.last?.last, (last.depth > depth) == (line.depth > depth) {
+                result[result.count - 1].append(line)
+            } else {
+                result.append([line])
+            }
+        }
+        return result
+    }
+
+    var body: some View {
+        let sections = runs
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(sections.indices, id: \.self) { index in
+                let section = sections[index]
+                if section[0].depth > depth {
+                    QuoteHistory(lines: section, depth: depth + 1)
+                } else {
+                    NativeMessageBody(bodyText: section.map(\.text).joined(separator: "\n"), isHistory: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(7)
+        .overlay(Rectangle().strokeBorder(Color.gray.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+    }
+}
+
 struct NativeEmbedCard: View {
     let item: EmbedItem
     @State private var markup: String?
