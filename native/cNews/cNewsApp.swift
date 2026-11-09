@@ -983,6 +983,8 @@ struct ArticleScreen: View {
     }
 }
 struct ReplyScreen: View {
+    private enum ComposeField: Hashable { case subject, content }
+
     @EnvironmentObject var store: ReaderStore
     @Environment(\.dismiss) var dismiss
     var thread: NewsThread
@@ -992,6 +994,8 @@ struct ReplyScreen: View {
     @State private var draft = ReplyDraft()
     @State private var loadingHistory = true
     @State private var historyReady = false
+    @FocusState private var focusedField: ComposeField?
+    @State private var didSetInitialFocus = false
     @State private var sending = false
     @State private var errorText: String?
     @State private var picker = false
@@ -1009,11 +1013,13 @@ struct ReplyScreen: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
                 if isNewPost {
-                    TextField("Subject", text: Binding(get: { draft.subject ?? "" }, set: { draft.subject = $0; edited() })).padding(12).disabled(sending)
+                    TextField("Subject", text: Binding(get: { draft.subject ?? "" }, set: { draft.subject = $0; edited() }))
+                        .focused($focusedField, equals: .subject).padding(12).disabled(sending)
                 } else { Text("Re: \(thread.subject)").padding(12) }
                 Divider()
                 if loadingHistory { ProgressView("Loading reply history…").padding() }
                 TextEditor(text: Binding(get: { draft.text }, set: { draft.text = $0; edited() }))
+                    .focused($focusedField, equals: .content)
                     .scrollContentBackground(.hidden).scrollIndicators(.hidden).padding(8).disabled(loadingHistory || !historyReady || sending)
                 if importing {
                     HStack {
@@ -1059,6 +1065,11 @@ struct ReplyScreen: View {
                     }.frame(height: 52).padding(.horizontal, 12).background(.black).buttonStyle(.plain).foregroundStyle(Color(red: 0.04, green: 0.52, blue: 1))
                 }
                 .task { await loadHistory() }
+                .task(id: historyReady && !loadingHistory) {
+                    guard historyReady, !loadingHistory, !didSetInitialFocus else { return }
+                    didSetInitialFocus = true
+                    if focusedField == nil { focusedField = isNewPost ? .subject : .content }
+                }
                 .overlay {
                     if photoActions {
                         ReaderActionSheet(title: "Attach Photo", items: [
