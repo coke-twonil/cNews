@@ -47,7 +47,7 @@ struct QuoteHistory: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(7)
-        .overlay(Rectangle().strokeBorder(Color.gray.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.gray.opacity(0.75), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
     }
 }
 
