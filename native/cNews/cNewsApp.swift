@@ -983,8 +983,6 @@ struct ArticleScreen: View {
     }
 }
 struct ReplyScreen: View {
-    private enum ComposeField: Hashable { case subject, content }
-
     @EnvironmentObject var store: ReaderStore
     @Environment(\.dismiss) var dismiss
     var thread: NewsThread
@@ -994,7 +992,7 @@ struct ReplyScreen: View {
     @State private var draft = ReplyDraft()
     @State private var loadingHistory = true
     @State private var historyReady = false
-    @FocusState private var focusedField: ComposeField?
+    @FocusState private var subjectFocused: Bool
     @State private var didSetInitialFocus = false
     @State private var sending = false
     @State private var errorText: String?
@@ -1014,13 +1012,18 @@ struct ReplyScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 if isNewPost {
                     TextField("Subject", text: Binding(get: { draft.subject ?? "" }, set: { draft.subject = $0; edited() }))
-                        .focused($focusedField, equals: .subject).padding(12).disabled(sending)
+                        .focused($subjectFocused).padding(12).disabled(sending)
                 } else { Text("Re: \(thread.subject)").padding(12) }
                 Divider()
                 if loadingHistory { ProgressView("Loading reply history…").padding() }
-                TextEditor(text: Binding(get: { draft.text }, set: { draft.text = $0; edited() }))
-                    .focused($focusedField, equals: .content)
-                    .scrollContentBackground(.hidden).scrollIndicators(.hidden).padding(8).disabled(loadingHistory || !historyReady || sending)
+                let content = Binding(get: { draft.text }, set: { draft.text = $0; edited() })
+                let canEdit = historyReady && !loadingHistory && !sending
+                if isNewPost {
+                    TextEditor(text: content)
+                        .scrollContentBackground(.hidden).scrollIndicators(.hidden).padding(8).disabled(!canEdit)
+                } else {
+                    ReplyContentEditor(text: content, canEdit: canEdit).padding(8)
+                }
                 if importing {
                     HStack {
                         ProgressView("Preparing photo…")
@@ -1066,9 +1069,9 @@ struct ReplyScreen: View {
                 }
                 .task { await loadHistory() }
                 .task(id: historyReady && !loadingHistory) {
-                    guard historyReady, !loadingHistory, !didSetInitialFocus else { return }
+                    guard isNewPost, historyReady, !loadingHistory, !didSetInitialFocus else { return }
                     didSetInitialFocus = true
-                    if focusedField == nil { focusedField = isNewPost ? .subject : .content }
+                    subjectFocused = true
                 }
                 .overlay {
                     if photoActions {
@@ -1185,6 +1188,65 @@ struct ReplyScreen: View {
         }
     }
 }
+private struct ReplyContentEditor: UIViewRepresentable {
+    @Binding var text: String
+    let canEdit: Bool
+
+    func makeUIView(context: Context) -> ReplyTextView {
+        let editor = ReplyTextView()
+        editor.delegate = context.coordinator
+        editor.font = .preferredFont(forTextStyle: .body)
+        editor.adjustsFontForContentSizeCategory = true
+        editor.textColor = .label
+        editor.backgroundColor = .clear
+        editor.showsVerticalScrollIndicator = false
+        return editor
+    }
+
+    func updateUIView(_ editor: ReplyTextView, context: Context) {
+        context.coordinator.text = $text
+        if editor.text != text { editor.text = text }
+        editor.isEditable = canEdit
+        editor.requestInitialFocus()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+
+        init(text: Binding<String>) { self.text = text }
+
+        func textViewDidChange(_ textView: UITextView) {
+            text.wrappedValue = textView.text
+        }
+    }
+
+    final class ReplyTextView: UITextView {
+        private var didFocus = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            requestInitialFocus()
+        }
+
+        func requestInitialFocus() {
+            guard window != nil, isEditable, !didFocus else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, window != nil, isEditable, !didFocus else { return }
+                if !isFirstResponder {
+                    let start = NSRange(location: 0, length: 0)
+                    selectedRange = start
+                    guard becomeFirstResponder() else { return }
+                    selectedRange = start
+                    scrollRangeToVisible(start)
+                }
+                didFocus = true
+            }
+        }
+    }
+}
+
 struct ReplyPhotoThumbnail: View {
     let photo: ReplyPhoto
     @State private var image: UIImage?
