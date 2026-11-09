@@ -609,6 +609,25 @@ struct ThreadTopOffset: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 struct ThreadScreen: View {
+    private enum ScrollTarget: Hashable {
+        case header
+        case message(String)
+    }
+
+    private struct ThreadRow: Identifiable {
+        var thread: NewsThread
+        var message: NewsMessage
+        var depth: Int
+        var id: ScrollTarget { .message(message.id) }
+    }
+
+    // Gesture bookkeeping does not need to redraw the list on every scroll tick.
+    private final class PullTracking {
+        var offset: CGFloat = 0
+        var restingOffset: CGFloat?
+        var beganAtTop: Bool?
+    }
+
     @EnvironmentObject var store: ReaderStore
     var server: NewsServer
     var group: String
@@ -631,9 +650,8 @@ struct ThreadScreen: View {
     @State private var checking = false
     @State private var quantity = 500
     @State private var customQuantity = "500"
-    @State private var topOffset: CGFloat = 0
-    @State private var restingTopOffset: CGFloat?
-    @State private var pullBeganAtTop: Bool?
+    @State private var visibleTarget: ScrollTarget?
+    @State private var pullTracking = PullTracking()
     @State private var lastPull = -Double.infinity
     var threads: [NewsThread] {
         var result = store.snapshot.threads.compactMap { t -> NewsThread? in
@@ -645,34 +663,49 @@ struct ThreadScreen: View {
         return result
     }
     var body: some View {
+        let visibleThreads = threads
+        let rows = visibleThreads.flatMap { thread -> [ThreadRow] in
+            let isExpanded = expanded.contains(thread.id)
+            if !isExpanded, let first = thread.messages.first, first.parentID == nil {
+                return [ThreadRow(thread: thread, message: first, depth: 0)]
+            }
+            let tree = thread.tree
+            let entries = isExpanded ? tree[...] : tree.prefix(1)
+            return entries.map { ThreadRow(thread: thread, message: $0.message, depth: $0.depth) }
+        }
         ScrollView {
             LazyVStack(spacing: 0) {
-                Color.clear.frame(height: 0).background(GeometryReader { geometry in Color.clear.preference(key: ThreadTopOffset.self, value: geometry.frame(in: .named("thread-scroll")).minY) })
-                if !searching { Text(group).font(.system(size: 34, weight: .bold)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8) }
-                searchBar
-                if checking { ProgressView("Checking new messages…").padding() }
-                if store.busy { ProgressView(store.progress).padding() }
-                if threads.isEmpty { Text(query.isEmpty ? "未有符合條件嘅本機文章" : "搵唔到符合嘅文章").foregroundStyle(.secondary).padding(30) }
-                ForEach(threads) { thread in
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 0).background(GeometryReader { geometry in Color.clear.preference(key: ThreadTopOffset.self, value: geometry.frame(in: .named("thread-scroll")).minY) })
+                    if !searching { Text(group).font(.system(size: 34, weight: .bold)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8) }
+                    searchBar
+                }.id(ScrollTarget.header)
+                if rows.isEmpty { Text(query.isEmpty ? "未有符合條件嘅本機文章" : "搵唔到符合嘅文章").foregroundStyle(.secondary).padding(30) }
+                ForEach(rows) { row in
                     VStack(spacing: 0) {
-                        ForEach(expanded.contains(thread.id) ? thread.tree : Array(thread.tree.prefix(1)), id: \.message.id) { entry in
-                            messageRow(thread, entry.message, depth: entry.depth)
-                            Divider().overlay(Color(white: 0.08))
-                        }
-                    }.background(HorizontalSwipe { _ in toggle(thread.id) })
+                        messageRow(row.thread, row.message, depth: row.depth)
+                        Divider().overlay(Color(white: 0.08))
+                    }.background(HorizontalSwipe { _ in toggle(row.thread.id) })
                 }
-            }.background(EdgeBack(active: edgeBackActive && !downloadDialog && !actions && blockTarget == nil && reading == nil && !composing) { dismiss() })
+            }.scrollTargetLayout()
+            .background(EdgeBack(active: edgeBackActive && !downloadDialog && !actions && blockTarget == nil && reading == nil && !composing) { dismiss() })
             .background(PullToRefresh(enabled: !checking && !store.busy && !downloadDialog) { await pullRefresh() })
         }
+        .scrollPosition(id: $visibleTarget)
         .coordinateSpace(name: "thread-scroll")
-         .onPreferenceChange(ThreadTopOffset.self) { value in
-            topOffset = value
-            if restingTopOffset == nil && value.isFinite { restingTopOffset = value }
+        .onPreferenceChange(ThreadTopOffset.self) { value in
+            pullTracking.offset = value
+            if pullTracking.restingOffset == nil && value.isFinite { pullTracking.restingOffset = value }
         }
         .simultaneousGesture(DragGesture(minimumDistance: 15)
-            .onChanged { _ in if pullBeganAtTop == nil { pullBeganAtTop = topOffset >= (restingTopOffset ?? topOffset) - 2 } }
+            .onChanged { _ in
+                if pullTracking.beganAtTop == nil, let restingOffset = pullTracking.restingOffset {
+                    pullTracking.beganAtTop = pullTracking.offset >= restingOffset - 2
+                }
+            }
             .onEnded { value in
-                let beganAtTop = pullBeganAtTop == true; pullBeganAtTop = nil
+                let beganAtTop = pullTracking.beganAtTop == true
+                pullTracking.beganAtTop = nil
                 if beganAtTop && value.translation.height >= 90 && value.translation.height > abs(value.translation.width) * 1.4 {
                     Task { await pullRefresh() }
                 }
@@ -692,7 +725,12 @@ struct ThreadScreen: View {
                 ReaderBottom {
                     Button { composing = true } label: { Image(systemName: "square.and.pencil").font(.system(size: 23)).frame(width: 44, height: 44) }.accessibilityLabel("New post")
                     Spacer()
-                    Text("\(store.snapshot.refreshCounts?[groupKey(server.id, group)] ?? 0) New Messages").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    if checking || store.busy {
+                        ProgressView(store.busy && !store.progress.isEmpty ? store.progress : "Checking new messages…")
+                            .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    } else {
+                        Text("\(store.snapshot.refreshCounts?[groupKey(server.id, group)] ?? 0) New Messages").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    }
                     Spacer()
                     Button { actions = true } label: { Image(systemName: "square.and.arrow.up").font(.system(size: 23)).frame(width: 44, height: 44) }.accessibilityLabel("Thread actions")
                 }
