@@ -23,10 +23,10 @@ final class ReaderStore: ObservableObject {
         file = selected
         if FileManager.default.fileExists(atPath: file.path) {
             do { snapshot = try JSONDecoder().decode(ReaderSnapshot.self, from: Data(contentsOf: file)) }
-            catch { snapshot = demoSnapshot(); storageError = "未能讀取本機資料：\(error.localizedDescription)" }
-        } else { snapshot = demoSnapshot() }
+            catch { snapshot = ReaderSnapshot(servers: [], threads: []); storageError = "未能讀取本機資料：\(error.localizedDescription)" }
+        } else { snapshot = ReaderSnapshot(servers: [], threads: []) }
         if !snapshot.servers.contains(where: { $0.id == "live-public" }) && !(snapshot.deletedServerIDs ?? []).contains("live-public") {
-            snapshot.servers.append(NewsServer(id: "live-public", title: "news.twonil.hk · Live", host: "news.twonil.hk", name: "", email: "", groups: ["general.chat", "test.test"]))
+            snapshot.servers.append(NewsServer(id: "live-public", title: "news.twonil.hk · Live", host: "news.twonil.hk", name: "", email: "", groups: ["general.chat", "general.soccer_n_chat"]))
         }
         if snapshot.servers.contains(where: { $0.id == "demo" }) && !snapshot.threads.contains(where: { $0.id == "native-scroll-demo" }) { snapshot.threads.append(scrollDemoThread()) }
         if snapshot.migrateSenderIPParser() { save() }
@@ -641,6 +641,8 @@ struct ThreadScreen: View {
     @State private var latestReply = false
     @State private var actions = false
     @State private var composing = false
+    @State private var postingIdentityRequired = false
+    @State private var editingPostingIdentity = false
     @State private var blockTarget: BlockTarget?
     @State private var reading: ReadingSession?
     @State private var edgeBackActive = false
@@ -662,6 +664,15 @@ struct ThreadScreen: View {
         if latestReply { result.sort { ($0.messages.compactMap(\.articleNumber).max() ?? 0) > ($1.messages.compactMap(\.articleNumber).max() ?? 0) } }
         return result
     }
+    private var postingServer: NewsServer? {
+        store.snapshot.servers.first { $0.id == (server.id) }
+    }
+    private func openComposer() {
+        guard let postingServer else { return }
+        if postingServer.hasPostingIdentity { composing = true }
+        else { postingIdentityRequired = true }
+    }
+
     var body: some View {
         let visibleThreads = threads
         let rows = visibleThreads.flatMap { thread -> [ThreadRow] in
@@ -723,7 +734,7 @@ struct ThreadScreen: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if !searching {
                 ReaderBottom {
-                    Button { composing = true } label: { Image(systemName: "square.and.pencil").font(.system(size: 23)).frame(width: 44, height: 44) }.accessibilityLabel("New post")
+                    Button { openComposer() } label: { Image(systemName: "square.and.pencil").font(.system(size: 23)).frame(width: 44, height: 44) }.accessibilityLabel("New post")
                     Spacer()
                     if checking || store.busy {
                         ProgressView(store.busy && !store.progress.isEmpty ? store.progress : "Checking new messages…")
@@ -765,6 +776,15 @@ struct ThreadScreen: View {
             }
         }
         .sheet(item: $blockTarget) { target in BlockUserSheet(target: target) { } }
+        .alert("Posting Identity", isPresented: $postingIdentityRequired) {
+            Button("Server Settings") { editingPostingIdentity = true }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("請先喺 Server Settings 填寫 Name 同 Email，先可以發文或回覆。")
+        }
+        .sheet(isPresented: $editingPostingIdentity) {
+            if let postingServer { ServerEditor(server: postingServer, isNew: false) }
+        }
         .sheet(isPresented: $composing) {
             ReplyScreen(thread: NewsThread(id: "new|" + groupKey(server.id, group), subject: "", messages: [], serverID: server.id == "demo" ? nil : server.id, groupName: group), message: NewsMessage(id: "new", author: "", body: ""), isNewPost: true, onSent: { composing = false })
         }
@@ -772,10 +792,13 @@ struct ThreadScreen: View {
             VStack(spacing: 20) {
                 Text("\(availableNumbers.count) new messages").font(.headline)
                 Text("Next 由本機最新已下載文章之後開始；Latest 取最新一批。").font(.footnote).foregroundStyle(.secondary)
-                Picker("Download", selection: $quantity) { Text("500").tag(500); Text("1,000").tag(1000); Text("2,000").tag(2000); Text("More…").tag(-1); Text("All").tag(0) }.pickerStyle(.menu)
+                Picker("Download", selection: $quantity) { Text("500").tag(500); Text("1,000").tag(1000); Text("2,000").tag(2000); Text("More…").tag(-1) }.pickerStyle(.menu)
                 if quantity == -1 { TextField("Quantity", text: $customQuantity).keyboardType(.numberPad).textFieldStyle(.roundedBorder) }
                 Button("Next \(chosenCount)") { startDownload(latest: false) }.disabled(chosenCount < 1)
                 Button("Latest \(chosenCount)") { startDownload(latest: true) }.disabled(chosenCount < 1)
+                Button("All (\(availableNumbers.count.formatted()) messages)") {
+                    download(availableNumbers)
+                }
                 Button("Cancel") { downloadDialog = false }
             }.padding(24).presentationDetents([.medium, .large])
         }
@@ -824,7 +847,12 @@ struct ThreadScreen: View {
                 } else { Image(systemName: "chevron.right").foregroundStyle(.gray).frame(width: 32) }
             }
         }.padding(.leading, 12 + CGFloat(min(depth, 12)) * 18).padding(.trailing, 12).frame(minHeight: 70).contentShape(Rectangle())
-            .onLongPressGesture { blockTarget = BlockTarget(message: message, serverID: server.id, group: group) }
+            .contextMenu {
+                Button("Mark This Thread as Read") { store.markThreadRead(thread.id) }
+                Button("Block") {
+                    blockTarget = BlockTarget(message: message, serverID: server.id, group: group)
+                }
+            }
     }
     func pullRefresh() async {
         guard ProcessInfo.processInfo.systemUptime - lastPull > 1, !checking, !store.busy, !downloadDialog else { return }
@@ -832,7 +860,7 @@ struct ThreadScreen: View {
         if server.id == "demo" { store.refresh(group: group) }
         else { await checkMessages() }
     }
-    var chosenCount: Int { min(availableNumbers.count, quantity == 0 ? availableNumbers.count : quantity == -1 ? max(0, Int(customQuantity) ?? 0) : quantity) }
+    var chosenCount: Int { min(availableNumbers.count, quantity == -1 ? max(0, Int(customQuantity) ?? 0) : quantity) }
     func checkMessages() async {
         guard !checking, !store.busy else { return }
         checking = true; defer { checking = false }
@@ -850,6 +878,9 @@ struct ThreadScreen: View {
     func startDownload(latest: Bool) {
         let count = chosenCount; guard count > 0 else { return }
         let numbers = latest ? Array(availableNumbers.suffix(count)) : Array(availableNumbers.prefix(count))
+        download(numbers)
+    }
+    private func download(_ numbers: [Int]) {
         downloadDialog = false
         Task { await store.download(server: server, group: group, numbers: numbers) }
     }
@@ -913,6 +944,8 @@ struct ArticleScreen: View {
     var onReplySent: () -> Void
     @State private var index = 0
     @State private var composing = false
+    @State private var postingIdentityRequired = false
+    @State private var editingPostingIdentity = false
     @State private var actions = false
     @State private var blockTarget: BlockTarget?
     @State private var edgeBackActive = false
@@ -923,6 +956,15 @@ struct ArticleScreen: View {
     var item: ReadingItem { route.indices.contains(index) ? route[index] : initial }
     var thread: NewsThread? { store.snapshot.threads.first { $0.id == item.threadID } }
     var message: NewsMessage? { thread?.messages.first { $0.id == item.messageID } }
+    private var postingServer: NewsServer? {
+        store.snapshot.servers.first { $0.id == (thread?.serverID ?? "demo") }
+    }
+    private func openComposer() {
+        guard let postingServer else { return }
+        if postingServer.hasPostingIdentity { composing = true }
+        else { postingIdentityRequired = true }
+    }
+
     var body: some View {
         ScrollView {
             if let thread, let message {
@@ -955,7 +997,7 @@ struct ArticleScreen: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ReaderBottom {
-                    Button { composing = true } label: { Image(systemName: "arrowshape.turn.up.left").frame(width: 44, height: 44) }.accessibilityLabel("Reply")
+                    Button { openComposer() } label: { Image(systemName: "arrowshape.turn.up.left").frame(width: 44, height: 44) }.accessibilityLabel("Reply")
                     Spacer(minLength: 0)
                     Button { move(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }.disabled(index == 0).accessibilityLabel("Previous message")
                     Spacer(minLength: 0)
@@ -978,6 +1020,15 @@ struct ArticleScreen: View {
             }
             .sheet(item: $blockTarget) { target in BlockUserSheet(target: target) { dismiss() } }
             .task(id: item.messageID) { store.markRead(item.messageID, threadID: item.threadID); await store.loadArticle(item.messageID, threadID: item.threadID) }
+            .alert("Posting Identity", isPresented: $postingIdentityRequired) {
+                Button("Server Settings") { editingPostingIdentity = true }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("請先喺 Server Settings 填寫 Name 同 Email，先可以發文或回覆。")
+            }
+            .sheet(isPresented: $editingPostingIdentity) {
+                if let postingServer { ServerEditor(server: postingServer, isNew: false) }
+            }
             .sheet(isPresented: $composing) { if let thread, let message { ReplyScreen(thread: thread, message: message, onSent: onReplySent) } }
     }
     private var threadPosition: String {
@@ -1044,7 +1095,7 @@ struct ReplyScreen: View {
     var server: NewsServer? { store.snapshot.servers.first { $0.id == (thread.serverID ?? "demo") } }
     var draftKey: String { (thread.serverID ?? "demo") + "|" + (thread.groupName ?? "general.chat") + "|" + message.id }
     var isLive: Bool { thread.serverID != nil }
-    var identityReady: Bool { guard let server else { return false }; return !server.name.isEmpty && server.email.contains("@") }
+    var identityReady: Bool { server?.hasPostingIdentity == true }
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 0) {
@@ -1183,7 +1234,7 @@ struct ReplyScreen: View {
         }
     }
     func send() async {
-        guard let server, !sending else { return }
+        guard let server, identityReady, !sending else { return }
         sending = true; errorText = nil; defer { sending = false }
         if !isLive {
             var reply = NewsMessage(id: draft.messageID, parentID: message.id, author: server.name, body: draft.text)

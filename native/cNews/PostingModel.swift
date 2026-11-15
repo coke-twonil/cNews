@@ -10,10 +10,16 @@ func postingFingerprint(text: String, photos: [ReplyPhoto], name: String, email:
     let data = try! JSONEncoder().encode([text, name, email, subject, refs.joined(separator: " ")] + photos.map { $0.mime + ":" + SHA256.hash(data: $0.data).description })
     return SHA256.hash(data: data).description
 }
+extension NewsServer {
+    var hasPostingIdentity: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            name.rangeOfCharacter(from: .newlines) == nil &&
+            email.range(of: #"\A[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\z"#, options: .regularExpression) != nil
+    }
+}
+
 func buildReply(draft: ReplyDraft, server: NewsServer, group: String, subject: String, refs: [String]) throws -> Data {
-    guard validGroup(group), !server.name.trimmingCharacters(in: .whitespaces).isEmpty,
-          server.email.range(of: "\\A[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\\z", options: .regularExpression) != nil,
-          server.name.rangeOfCharacter(from: .newlines) == nil, subject.rangeOfCharacter(from: .newlines) == nil,
+    guard validGroup(group), server.hasPostingIdentity, subject.rangeOfCharacter(from: .newlines) == nil,
           refs.allSatisfy({ messageIDs($0) == [$0] }), draft.photos.count <= 3 else { throw NewsError.failure("請檢查 server Name／Email、回覆資料及最多三張相片") }
     let sections = replyTextSections(draft.text)
     guard !sections.own.isEmpty || !draft.photos.isEmpty else { throw NewsError.failure("請輸入新內容或加相") }

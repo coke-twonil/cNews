@@ -10,7 +10,14 @@ struct NativeMessageBody: View {
             ForEach(mediaPieces(bodyText, embeds: !isHistory)) { piece in
                 if let text = piece.text { Text(text).foregroundStyle(isHistory ? Color(white: 0.68) : .primary).font(.system(size: 18)).lineSpacing(5).frame(maxWidth: .infinity, alignment: .leading) }
                 if let url = piece.link {
-                    Button { ExternalLinkOpener.open(url) } label: { Text(url.absoluteString).font(.system(size: 18)).multilineTextAlignment(.leading).foregroundStyle(isHistory ? Color.blue.opacity(0.75) : .blue) }.buttonStyle(.plain)
+                    Text(url.absoluteString)
+                        .font(.system(size: 18))
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(isHistory ? Color.blue.opacity(0.75) : .blue)
+                        .contentShape(Rectangle())
+                        .onTapGesture { ExternalLinkOpener.open(url) }
+                        .accessibilityAddTraits(.isLink)
+                        .accessibilityAction { ExternalLinkOpener.open(url) }
                 }
                 if let item = piece.embed { NativeEmbedCard(item: item).padding(.vertical, 12) }
             }
