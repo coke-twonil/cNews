@@ -185,3 +185,5 @@ xcrun swiftc native/cNews/ReaderModel.swift native/cNews/SnapshotFileWriter.swif
 Sender／Message 搜尋只顯示實際符合的文章，不再因 thread 內一篇符合就列出其他作者或內文不符的文章。清空搜尋還原完整 thread，Subject 搜尋仍保留整條符合主題的 thread。
 
 圖片縮放補充：內文的附件本身亦使用原生 UIScrollView，毋須先開全屏即可雙指縮放／雙擊，放大後可拖動；右上角放大圖示開全屏。文章左右切換手勢不攔截圖片區域，避免縮放或拖動變成轉文章。
+
+Choose Existing 改用 PHPicker 系統圖片庫，取代直接用 PhotoKit 枚舉相片；即使 app 只有有限相片權限，仍可由系統圖片庫選擇其他相片，app 只取得本次選取結果。不要求升級至完整相庫權限。保留依序選取、最多三張、關閉選圖器後才背景匯入、取消 iCloud 載入及頂部縮圖流程。

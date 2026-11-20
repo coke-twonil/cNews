@@ -1,5 +1,5 @@
 import SwiftUI
-import Photos
+import PhotosUI
 
 @MainActor
 final class ReaderStore: ObservableObject {
@@ -1089,6 +1089,7 @@ struct ReplyScreen: View {
     @State private var photoActions = false
     @State private var importing = false
     @State private var photoSlots = 3
+    @State private var pendingPhotos: [PHPickerResult] = []
     @State private var photoTask: Task<Void, Never>?
     @State private var camera = false
     @State private var settings = false
@@ -1173,7 +1174,13 @@ struct ReplyScreen: View {
                         ], cancel: { photoActions = false })
                     }
                 }
-                .sheet(isPresented: $picker) { AlbumPhotoPicker(limit: photoSlots) { assets in picker = false; importPhotos(assets) } }
+                .sheet(isPresented: $picker, onDismiss: {
+                    let photos = pendingPhotos
+                    pendingPhotos = []
+                    importPhotos(photos)
+                }) {
+                    AlbumPhotoPicker(limit: photoSlots) { photos in pendingPhotos = photos; picker = false }
+                }
                 .onDisappear { photoTask?.cancel() }
                 .sheet(isPresented: $camera) { CameraCapture { image in importCameraPhoto(image) } }
                 .sheet(isPresented: $settings) { if let server { ServerEditor(server: server, isNew: false) } }
@@ -1194,7 +1201,7 @@ struct ReplyScreen: View {
         guard draft.photos.count < 3 else { throw NewsError.failure("最多三張相") }
         draft.photos.append(photo); edited()
     }
-    func importPhotos(_ items: [PHAsset]) {
+    func importPhotos(_ items: [PHPickerResult]) {
         guard !items.isEmpty, !importing else { return }
         importing = true; errorText = nil
         photoTask = Task {
