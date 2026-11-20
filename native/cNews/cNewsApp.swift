@@ -1083,6 +1083,7 @@ struct ReplyScreen: View {
     @State private var historyReady = false
     @FocusState private var subjectFocused: Bool
     @State private var didSetInitialFocus = false
+    @State private var discarded = false
     @State private var sending = false
     @State private var errorText: String?
     @State private var picker = false
@@ -1132,7 +1133,7 @@ struct ReplyScreen: View {
             }.background(.black).toolbar(.hidden, for: .navigationBar)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     HStack(spacing: 6) {
-                        Button("Cancel") { dismiss() }.frame(minHeight: 44).disabled(sending)
+                        Button("Cancel") { cancelComposer() }.frame(minHeight: 44).disabled(sending)
                         Group {
                             if draft.photos.isEmpty { Text(isNewPost ? "New Post" : "Reply").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white) }
                             else {
@@ -1192,12 +1193,26 @@ struct ReplyScreen: View {
         loadingHistory = true; defer { loadingHistory = false }
         if let saved = store.snapshot.replyDrafts?[draftKey] { draft = saved; historyReady = true; return }
         if isNewPost { historyReady = true; saveDraft(); return }
-        do { draft.text = "\n\n" + (try await store.replyHistory(thread: thread, message: message)); historyReady = true; saveDraft(); errorText = nil }
-        catch { errorText = "未能載入父訊息 history：" + error.localizedDescription }
+        do {
+            let history = try await store.replyHistory(thread: thread, message: message)
+            guard !discarded, !Task.isCancelled else { return }
+            draft.text = "\n\n" + history; historyReady = true; saveDraft(); errorText = nil
+        } catch { if !discarded { errorText = "未能載入父訊息 history：" + error.localizedDescription } }
     }
-    func saveDraft() { store.saveReplyDraft(draft, key: draftKey) }
+    func cancelComposer() {
+        discarded = true
+        photoTask?.cancel()
+        pendingPhotos = []
+        store.snapshot.replyDrafts?[draftKey] = nil
+        dismiss()
+    }
+    func saveDraft() {
+        guard !discarded else { return }
+        store.saveReplyDraft(draft, key: draftKey)
+    }
     func edited() { draft.changed(); saveDraft(); errorText = nil }
     func appendPhoto(_ photo: ReplyPhoto) throws {
+        guard !discarded else { throw CancellationError() }
         guard draft.photos.count < 3 else { throw NewsError.failure("最多三張相") }
         draft.photos.append(photo); edited()
     }

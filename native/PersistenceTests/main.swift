@@ -21,3 +21,11 @@ let badWriter = SnapshotFileWriter(file: file.appendingPathComponent("cannot-wri
 badWriter.schedule(snapshot) { _ in rejected.signal() }
 badWriter.flush()
 check(rejected.wait(timeout: .now()+1) == .success, "Persistence error is reported rather than losing draft silently")
+snapshot.replyDrafts?["other|group|reply"] = ReplyDraft(text: "Keep other draft")
+writer.schedule(snapshot) { error in fatalError(error) }
+snapshot.replyDrafts?["demo|general.chat|reply"] = nil
+writer.schedule(snapshot) { error in fatalError(error) }
+writer.flush()
+let cancelled = try JSONDecoder().decode(ReaderSnapshot.self, from: Data(contentsOf: file))
+check(cancelled.replyDrafts?["demo|general.chat|reply"] == nil, "Discard wins over queued draft writes, including photo bytes")
+check(cancelled.replyDrafts?["other|group|reply"]?.text == "Keep other draft" && cancelled.threads.count == snapshot.threads.count, "Discard preserves unrelated drafts and article cache")
