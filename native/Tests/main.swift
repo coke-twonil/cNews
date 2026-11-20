@@ -112,3 +112,7 @@ for (input, expected) in [
 let quoteLines = quotedLines("> Parent\n> > Grandparent\n>>> Oldest\n> Newer")
 check(quoteLines.map(\.depth) == [1, 2, 3, 1], "quoted history preserves nesting and returns to outer level")
 check(quoteLines.map(\.text) == ["Parent", "Grandparent", "Oldest", "Newer"], "quote markers are replaced by frames")
+let senderResults = thread.searchResults("coffee", scope: "Sender")
+check(!senderResults.messages.isEmpty && senderResults.messages.allSatisfy { $0.author.localizedCaseInsensitiveContains("coffee") }, "Sender results contain only matching authors, not the entire thread")
+check(senderResults.tree.count == senderResults.messages.count, "Search retains matching replies whose parents were filtered out")
+check(thread.searchResults("", scope: "Sender").messages.count == thread.messages.count, "Clearing search restores full thread")

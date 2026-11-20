@@ -175,3 +175,11 @@ xcrun swiftc native/cNews/ReaderModel.swift native/cNews/SnapshotFileWriter.swif
 
 
 改名為 cNews：Xcode project、target、scheme、app 顯示名稱及新文章識別碼已更新。本機資料自動搬移，舊草稿保留原發送識別碼以免重複發文。現有真機安裝沿用私人簽名設定的 bundle identifier，保留原有資料；新開發者使用公開預設 `org.cnews.reader`。
+
+## 圖片縮放、附件相容及搜尋結果修正
+
+文章附件可點開全屏，用雙指縮放（最高 6 倍）、拖動及雙擊放大／還原，右上角關閉；全屏圖片不使用文章切換手勢。
+
+新發文章的圖片 MIME 同時提供 Content-Type name 與 Content-Disposition inline filename；一般文字用 UTF-8 8bit，超長行保留 Base64，圖片仍用每行最多 76 字的 Base64。保留最多三張、相片在 history 前及原有文章 References。這改善舊 reader 的解析提示，但未在 Newsy 實機驗證；已發文章不會被追溯修改。
+
+Sender／Message 搜尋只顯示實際符合的文章，不再因 thread 內一篇符合就列出其他作者或內文不符的文章。清空搜尋還原完整 thread，Subject 搜尋仍保留整條符合主題的 thread。

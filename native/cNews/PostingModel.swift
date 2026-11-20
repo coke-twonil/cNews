@@ -37,14 +37,22 @@ func buildReply(draft: ReplyDraft, server: NewsServer, group: String, subject: S
     var lines = ["From: \(encodedWords(server.name)) <\(server.email)>", "Newsgroups: \(group)", "Subject: \(encodedWords(subject))", "Date: \(date.string(from: Date()))", "Message-ID: \(draft.messageID)", "User-Agent: cNews/0.1", "MIME-Version: 1.0"]
     if !refs.isEmpty { lines += ["References: " + refs.joined(separator: "\r\n "), "In-Reply-To: " + refs.last!] }
     lines += ["Content-Type: multipart/mixed; boundary=\"\(boundary)\"", ""]
-    func appendText(_ text: String) { lines += ["--"+boundary, "Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: base64", "", base64(Data(text.utf8))] }
+    func appendText(_ text: String) {
+        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        // Legacy readers expect readable text parts; retain Base64 for lines
+        // that would exceed the NNTP transport limit.
+        let safe8bit = normalized.components(separatedBy: "\n").allSatisfy { $0.utf8.count <= 998 }
+        lines += ["--"+boundary, "Content-Type: text/plain; charset=utf-8",
+                  "Content-Transfer-Encoding: " + (safe8bit ? "8bit" : "base64"), "",
+                  safe8bit ? normalized.replacingOccurrences(of: "\n", with: "\r\n") : base64(Data(normalized.utf8))]
+    }
     appendText(sections.own)
     for (index, photo) in draft.photos.enumerated() {
         guard photo.data.count <= 5*1024*1024 else { throw NewsError.failure("每張相最多 5 MB") }
         let isJPEG = photo.data.starts(with: [0xff,0xd8,0xff]), isPNG = photo.data.starts(with: [137,80,78,71,13,10,26,10])
         guard (photo.mime == "image/jpeg" && isJPEG) || (photo.mime == "image/png" && isPNG) else { throw NewsError.failure("附件格式無效") }
         let ext = isPNG ? "png" : "jpg"
-        lines += ["--"+boundary, "Content-Type: \(photo.mime)", "Content-Disposition: attachment; filename=\"photo-\(index+1).\(ext)\"", "Content-Transfer-Encoding: base64", "", base64(photo.data)]
+        lines += ["--"+boundary, "Content-Type: \(photo.mime); name=\"photo-\(index+1).\(ext)\"", "Content-Disposition: inline; filename=\"photo-\(index+1).\(ext)\"", "Content-Transfer-Encoding: base64", "", base64(photo.data)]
     }
     if !sections.history.isEmpty { appendText(sections.history) }
     lines += ["--"+boundary+"--", ""]

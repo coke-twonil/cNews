@@ -9,7 +9,7 @@ let payload = try buildReply(draft: draft, server: server, group: "test.test", s
 let decoded = try decodeArticle(payload)
 check(decoded.body.contains("😀") && decoded.images == [png], "MIME emoji and image roundtrip")
 let raw = latin(payload)
-check(raw.range(of: "Content-Type: image/png")!.lowerBound < raw.range(of: Data("> Parent: old history".utf8).base64EncodedString())!.lowerBound, "photo before quoted history")
+check(raw.range(of: "Content-Type: image/png")!.lowerBound < raw.range(of: "> Parent: old history")!.lowerBound, "photo before quoted history")
 check(articleHeaders(payload)["references"] == "<root@fixture>", "References parent")
 check(try! matchingArticle(payload, payload), "matching readable article accepted")
 var changed = draft; changed.photos = [ReplyPhoto(data: Data([137,80,78,71,13,10,26,10,9]), mime: "image/png")]
@@ -52,3 +52,10 @@ if CommandLine.arguments.count > 1 {
     let readback = try client.rawArticle(group: "test.fixture", identifier: triple.messageID)
     check(try! matchingArticle(readback, triplePayload), "Three large photo POST and readback match on local server")
 }
+check(raw.contains("Content-Type: image/png; name=\"photo-1.png\""), "Photo media type supplies legacy filename parameter")
+check(raw.contains("Content-Disposition: inline; filename=\"photo-1.png\""), "Photos request inline rendering in other readers")
+
+check(raw.contains("Content-Transfer-Encoding: 8bit"), "Ordinary text remains readable to legacy MIME readers")
+let longDraft = ReplyDraft(text: String(repeating: "字", count: 500))
+let longPayload = try buildReply(draft: longDraft, server: server, group: "test.test", subject: "Long line", refs: [])
+check((try! decodeArticle(longPayload)).body == longDraft.text, "Long UTF8 lines retain lossless transport encoding")

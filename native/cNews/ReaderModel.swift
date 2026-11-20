@@ -196,6 +196,15 @@ extension NewsThread {
         var result = self; result.messages.removeAll { hidden.contains($0.id) }
         return result.messages.isEmpty ? nil : result
     }
+    func searchResults(_ query: String, scope: String) -> NewsThread {
+        guard !query.isEmpty, scope == "Sender" || scope == "Message" else { return self }
+        var result = self
+        result.messages = messages.filter {
+            scope == "Sender" ? $0.author.localizedCaseInsensitiveContains(query) :
+                ($0.searchBody ?? $0.body).localizedCaseInsensitiveContains(query)
+        }
+        return result
+    }
     func matches(_ query: String, scope: String) -> Bool {
         if query.isEmpty { return true }
         switch scope {

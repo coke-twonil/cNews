@@ -659,7 +659,7 @@ struct ThreadScreen: View {
         var result = store.snapshot.threads.compactMap { t -> NewsThread? in
             let belongs = server.id == "demo" ? (t.serverID == nil && (t.groupName ?? "general.chat") == group) : (t.serverID == server.id && t.groupName == group)
             guard belongs, let visible = store.visibleThread(t), (!unreadOnly || visible.unread > 0), (!favouritesOnly || visible.messages.contains { $0.favourite == true }), visible.matches(query, scope: searchScope) else { return nil }
-            return visible
+            return visible.searchResults(query, scope: searchScope)
         }
         if latestReply { result.sort { ($0.messages.compactMap(\.articleNumber).max() ?? 0) > ($1.messages.compactMap(\.articleNumber).max() ?? 0) } }
         return result
@@ -978,7 +978,7 @@ struct ArticleScreen: View {
                         }
                         NativeMessageBody(bodyText: sections.own)
                         ForEach(Array((message.images ?? []).enumerated()), id: \.offset) { _, data in
-                            if let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit() }
+                            if let image = UIImage(data: data) { ZoomableArticleImage(image: image) }
                         }
                         if !sections.history.isEmpty { QuoteHistory(lines: quotedLines(sections.history)) }
                         ForEach(message.warnings ?? [], id: \.self) { Text($0).font(.footnote).foregroundStyle(.orange) }
@@ -1380,5 +1380,74 @@ struct ReaderSearch: View {
             TextField("Search", text: $text).textInputAutocapitalization(.never).autocorrectionDisabled()
             if !text.isEmpty { Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.gray) }.accessibilityLabel("Clear search") }
         }.padding(.horizontal, 9).frame(height: 36).background(Color(white: 0.11), in: RoundedRectangle(cornerRadius: 10)).padding(.horizontal, 16).padding(.bottom, 14).padding(.top, 6)
+    }
+}
+
+// Present photos outside the article's paging gestures so pinching and panning
+// cannot accidentally move to another message.
+struct ZoomableArticleImage: View {
+    let image: UIImage
+    @State private var showing = false
+    var body: some View {
+        Image(uiImage: image).resizable().scaledToFit()
+            .onTapGesture { showing = true }
+            .accessibilityLabel("Open photo")
+            .accessibilityAddTraits(.isButton)
+            .fullScreenCover(isPresented: $showing) {
+                ZStack(alignment: .topTrailing) {
+                    Color.black.ignoresSafeArea()
+                    PhotoZoomView(image: image).ignoresSafeArea()
+                    Button { showing = false } label: {
+                        Image(systemName: "xmark.circle.fill").font(.largeTitle)
+                            .foregroundStyle(.white, .gray).padding()
+                    }.accessibilityLabel("Close photo")
+                }
+            }
+    }
+}
+struct PhotoZoomView: UIViewRepresentable {
+    let image: UIImage
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> Canvas {
+        let view = Canvas()
+        view.delegate = context.coordinator
+        view.minimumZoomScale = 1
+        view.maximumZoomScale = 6
+        view.imageView.image = image
+        view.imageView.contentMode = .scaleAspectFit
+        view.addSubview(view.imageView)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTap(_:)))
+        tap.numberOfTapsRequired = 2
+        view.addGestureRecognizer(tap)
+        return view
+    }
+    func updateUIView(_ view: Canvas, context: Context) {}
+    final class Canvas: UIScrollView {
+        let imageView = UIImageView()
+        private var lastSize = CGSize.zero
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            if bounds.size != lastSize {
+                lastSize = bounds.size
+                setZoomScale(1, animated: false)
+                imageView.frame = CGRect(origin: .zero, size: bounds.size)
+                contentSize = bounds.size
+            }
+        }
+    }
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            (scrollView as? Canvas)?.imageView
+        }
+        @objc func doubleTap(_ gesture: UITapGestureRecognizer) {
+            guard let view = gesture.view as? Canvas else { return }
+            if view.zoomScale > 1 { view.setZoomScale(1, animated: true) }
+            else {
+                let point = gesture.location(in: view.imageView)
+                let size = CGSize(width: view.bounds.width / 3, height: view.bounds.height / 3)
+                view.zoom(to: CGRect(x: point.x-size.width/2, y: point.y-size.height/2,
+                                     width: size.width, height: size.height), animated: true)
+            }
+        }
     }
 }
