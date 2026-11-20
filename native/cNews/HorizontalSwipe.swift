@@ -66,6 +66,13 @@ struct HorizontalSwipe: UIViewRepresentable {
         }
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             guard enabled, let probe, let window = probe.window, let swipe = gestureRecognizer as? UISwipeGestureRecognizer else { return false }
+            // An inline image owns its gestures. Do not page the article while
+            // the reader is pinching or panning that image.
+            var touched = touch.view
+            while let view = touched {
+                if view is PhotoZoomView.Canvas { return false }
+                touched = view.superview
+            }
             let atEdge = touch.location(in: window).x <= 24
             if edgeOnly { return atEdge && swipe.direction == .right }
             if atEdge && swipe.direction == .right { return false }

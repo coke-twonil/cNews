@@ -1383,16 +1383,20 @@ struct ReaderSearch: View {
     }
 }
 
-// Present photos outside the article's paging gestures so pinching and panning
-// cannot accidentally move to another message.
+// Both the inline photo and full-screen viewer use native pinch/pan zoom.
 struct ZoomableArticleImage: View {
     let image: UIImage
     @State private var showing = false
     var body: some View {
-        Image(uiImage: image).resizable().scaledToFit()
-            .onTapGesture { showing = true }
-            .accessibilityLabel("Open photo")
-            .accessibilityAddTraits(.isButton)
+        PhotoZoomView(image: image)
+            .aspectRatio(image.size, contentMode: .fit)
+            .clipped()
+            .overlay(alignment: .topTrailing) {
+                Button { showing = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .padding(10).background(.black.opacity(0.65), in: Circle())
+                }.padding(6).accessibilityLabel("Open full screen photo")
+            }
             .fullScreenCover(isPresented: $showing) {
                 ZStack(alignment: .topTrailing) {
                     Color.black.ignoresSafeArea()
@@ -1413,6 +1417,10 @@ struct PhotoZoomView: UIViewRepresentable {
         view.delegate = context.coordinator
         view.minimumZoomScale = 1
         view.maximumZoomScale = 6
+        view.bouncesZoom = true
+        view.showsHorizontalScrollIndicator = false
+        view.showsVerticalScrollIndicator = false
+        view.accessibilityLabel = "Photo. Pinch or double tap to zoom."
         view.imageView.image = image
         view.imageView.contentMode = .scaleAspectFit
         view.addSubview(view.imageView)
